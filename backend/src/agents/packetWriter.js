@@ -5,6 +5,15 @@ import { callJSON, withFallback } from "../llm.js";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+const SITE_OF_SERVICE = { outpatient_imaging: "Outpatient diagnostic center", inpatient: "Inpatient hospital", day_care: "Day-care / ambulatory procedure unit" };
+
+/** Default Medical Necessity sentence: a test establishes a diagnosis, a treatment addresses one. */
+function necessityStatement(coding) {
+  return coding.kind === "treatment" || coding.kind === "therapeutic"
+    ? `The requested ${coding.procedureShort} is the appropriate next step in treating the documented condition.`
+    : `The requested ${coding.procedureShort} is needed to establish a definitive diagnosis and guide the next step in management.`;
+}
+
 /** Builds a citation registry that de-duplicates quotes. */
 function citationRegistry(documents) {
   const citations = [];
@@ -83,9 +92,9 @@ function ruleWrite(ctx) {
     lines.push("");
   }
 
-  const findings = [...byCat("exam_finding", 3), ...byCat("imaging", 1), ...byCat("red_flag", 2)];
+  const findings = [...byCat("exam_finding", 3), ...byCat("imaging", 2), ...byCat("test_result", 3), ...byCat("red_flag", 2)];
   if (findings.length) {
-    lines.push("## Examination and Imaging");
+    lines.push("## Examination and Investigations");
     for (const f of findings) {
       const n = cite({ quote: f.evidence_quote, docId: f.source.doc_id });
       if (n) lines.push(`- ${f.evidence_quote} [${n}]`);
@@ -104,12 +113,9 @@ function ruleWrite(ctx) {
   lines.push("");
 
   lines.push("## Medical Necessity");
-  const conservative = results.find((r) => r.status === "MET" && /conservative|NSAID/i.test(r.text));
+  const conservative = results.find((r) => r.status === "MET" && /conservative|NSAID|medical therapy|weight-loss|treatment tried/i.test(r.text));
   const consNs = conservative ? criteriaCitations[conservative.criterionId] : null;
-  lines.push(
-    `The requested ${coding.procedureShort} is needed to establish a definitive diagnosis and guide the next step in management.` +
-      (consNs ? ` Documented conservative management has not resolved the condition ${consNs.map((n) => `[${n}]`).join("")}.` : "")
-  );
+  lines.push(necessityStatement(coding) + (consNs ? ` Documented prior treatment has not resolved the condition ${consNs.map((n) => `[${n}]`).join("")}.` : ""));
   lines.push("");
   lines.push(...footer(ctx));
 
@@ -121,10 +127,10 @@ const SCHEMA = {
   properties: {
     clinical_summary: { type: "array", items: { type: "string" } },
     treatment_history: { type: "array", items: { type: "string" } },
-    examination_and_imaging: { type: "array", items: { type: "string" } },
+    examination_and_investigations: { type: "array", items: { type: "string" } },
     medical_necessity: { type: "string" },
   },
-  required: ["clinical_summary", "treatment_history", "examination_and_imaging", "medical_necessity"],
+  required: ["clinical_summary", "treatment_history", "examination_and_investigations", "medical_necessity"],
   additionalProperties: false,
 };
 
@@ -184,7 +190,7 @@ async function llmWrite(ctx) {
   const criteriaStart = base.letter.indexOf("## Policy Criteria Met");
   const criteriaEnd = base.letter.indexOf("## Medical Necessity");
   const criteriaBlock = base.letter.slice(criteriaStart, criteriaEnd).trimEnd().split("\n");
-  const necessity = convert(out.medical_necessity) || "The requested imaging is needed to establish a definitive diagnosis and guide management.";
+  const necessity = convert(out.medical_necessity) || necessityStatement(ctx.coding);
 
   // LETTER_STYLE=hybrid (default): clinical sections are built from verified chart quotes and the model
   // only writes the Medical Necessity paragraph. A quote check proves a quote exists, not that a sentence
@@ -201,8 +207,8 @@ async function llmWrite(ctx) {
   const lines = [
     ...header(ctx),
     ...(full
-      ? [...section("Clinical Summary", out.clinical_summary), ...section("Treatment History", out.treatment_history), ...section("Examination and Imaging", out.examination_and_imaging)]
-      : [...baseSection("Clinical Summary"), ...baseSection("Treatment History"), ...baseSection("Examination and Imaging")]),
+      ? [...section("Clinical Summary", out.clinical_summary), ...section("Treatment History", out.treatment_history), ...section("Examination and Investigations", out.examination_and_investigations)]
+      : [...baseSection("Clinical Summary"), ...baseSection("Treatment History"), ...baseSection("Examination and Investigations")]),
     ...criteriaBlock,
     "",
     "## Medical Necessity",
@@ -228,7 +234,7 @@ export function buildForm({ patient, coding, order }) {
     procedure: coding.procedure,
     icd10: coding.icd10.map((d) => d.code).join(", "),
     urgency: order.urgency || "routine",
-    siteOfService: "Outpatient imaging center",
+    siteOfService: SITE_OF_SERVICE[order.setting === "inpatient" ? "inpatient" : coding.benefit] || "Outpatient",
     requestedDate: today(),
   };
 }

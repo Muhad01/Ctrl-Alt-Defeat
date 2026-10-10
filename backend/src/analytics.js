@@ -3,7 +3,7 @@ import { db } from "./db.js";
 import { DENIAL_CLASSES } from "./data/codes.js";
 import { MOCK_PAYERS as PAYERS } from "./data/policies.js"; // synthetic stats only ever describe mock payers
 
-const MANUAL_BASELINE_MIN = 45; // industry estimate for a manual PA request (labelled as an estimate in the UI)
+const MANUAL_BASELINE_MIN = Number(process.env.ESTIMATED_MANUAL_MINUTES_PER_PACKET || 45); // industry estimate for a manual PA request (labelled as an estimate in the UI)
 const REVIEW_ESTIMATE_MIN = 5; // estimated coordinator review time with the copilot
 
 export function summary() {

@@ -4,6 +4,13 @@
 import { sentencePool, isNegated, extractWeeks, FAILURE_LANGUAGE, resolveQuote } from "../utils/text.js";
 import { callJSON, withFallback, docsForPrompt } from "../llm.js";
 
+// Keywords must start at a word boundary, so "exam" does not match "examples" and "SPECT" does not match
+// "suspected". Patterns are stems ("radiat", "ischemi"), so the end of the word is left open.
+const keywordRegex = (p) => new RegExp(`(?<![A-Za-z])(?:${p})`, "i");
+
+/** Document title lines ("ECHOCARDIOGRAM REPORT") name a document; they are not evidence that something was found or done. */
+const isTitleLine = (s) => s.index === 0 && s.text === s.text.toUpperCase();
+
 function evidenceFrom(s) {
   return { quote: s.text, docId: s.docId, docTitle: s.docTitle, start: s.start, end: s.end };
 }
@@ -19,7 +26,18 @@ function evaluateSpec(spec, pool) {
     return { status: "MISSING", evidence: [], confidence: 0.85, reasoning: results.map((r) => `${r.label}: ${r.reasoning}`).join(" ") };
   }
 
-  const res = spec.patterns.map((p) => new RegExp(p, "i"));
+  // Numeric threshold, e.g. BMI ≥ 40: the highest documented value must reach the minimum.
+  if (spec.numeric) {
+    const re = new RegExp(spec.numeric.re, "i");
+    const hits = pool.map((s) => ({ s, m: s.text.match(re) })).filter((h) => h.m).map((h) => ({ s: h.s, value: parseFloat(h.m[1]) }));
+    if (!hits.length) return { status: "MISSING", evidence: [], confidence: 0.85, reasoning: `No ${spec.numeric.label} value documented.` };
+    hits.sort((a, b) => b.value - a.value);
+    const best = hits[0];
+    if (best.value >= spec.numeric.min) return { status: "MET", evidence: [evidenceFrom(best.s)], confidence: 0.92, reasoning: `${spec.numeric.label} ${best.value} documented (≥ ${spec.numeric.min} required).` };
+    return { status: "MISSING", evidence: [evidenceFrom(best.s)], confidence: 0.88, reasoning: `${spec.numeric.label} ${best.value} documented; policy requires at least ${spec.numeric.min}.` };
+  }
+
+  const res = spec.patterns.map(keywordRegex);
   const positive = [];
   const negated = [];
   for (const s of pool) {
@@ -63,12 +81,19 @@ function evaluateSpec(spec, pool) {
     return { status: "MET", evidence: withDuration.slice(0, 2).map(evidenceFrom), confidence: 0.9, reasoning: `${best} weeks documented (≥ ${spec.minWeeks} required).` };
   }
 
+  // Treatment must have been tried AND failed, with no minimum duration (e.g. medical therapy before surgery).
+  if (spec.requireFailure) {
+    const failed = positive.find((s) => FAILURE_LANGUAGE.test(s.text) || FAILURE_LANGUAGE.test(s.next));
+    if (!failed) return { status: "UNCLEAR", evidence: positive.slice(0, 2).map(evidenceFrom), confidence: 0.6, reasoning: "Treatment is documented, but the outcome (failure / inadequate response) is not stated." };
+    return { status: "MET", evidence: [failed, ...positive.filter((s) => s !== failed)].slice(0, 2).map(evidenceFrom), confidence: 0.88, reasoning: "Treatment documented with an inadequate response." };
+  }
+
   const confidence = score(positive[0]) < 0 ? 0.65 : positive.length > 1 ? 0.92 : 0.84;
   return { status: "MET", evidence: positive.slice(0, 2).map(evidenceFrom), confidence, reasoning: `Documented in ${new Set(positive.map((s) => s.docTitle)).size} document(s).` };
 }
 
 function ruleMatch(policy, documents) {
-  const pool = sentencePool(documents);
+  const pool = sentencePool(documents).filter((s) => !isTitleLine(s));
   return policy.criteria.map((c) => ({ criterionId: c.id, text: c.text, required: c.required, ref: c.ref, ...evaluateSpec(c.spec, pool) }));
 }
 
@@ -103,15 +128,23 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-async function llmMatch(policy, documents) {
+async function llmMatch(policy, documents, ctx = {}) {
   const criteriaText = policy.criteria.map((c) => `- ${c.id} (${c.required ? "required" : "supporting"}): ${c.text}`).join("\n");
+  const request = [
+    ctx.patientName && `Patient: ${ctx.patientName}`,
+    ctx.procedure && `Requested service: ${ctx.procedure}`,
+    ctx.reason && `Clinical reason given by the ordering clinician: ${ctx.reason}`,
+  ].filter(Boolean).join("\n");
   const out = await callJSON({
     system:
-      "You are a meticulous prior authorization reviewer. For each payer criterion decide MET, MISSING or UNCLEAR strictly from the chart. " +
-      "MET requires affirmative documentation; durations must meet the stated minimum; negated findings ('has not', 'denies') are not evidence. " +
-      "Use UNCLEAR when something is mentioned but key details (duration, outcome) are missing. " +
+      "You are a meticulous prior authorization reviewer working for the payer. For each payer criterion decide MET, MISSING or UNCLEAR strictly from the chart, for THIS patient and THIS requested service. " +
+      "MET requires affirmative clinical documentation that the criterion is satisfied; durations and thresholds must meet the stated minimum; negated findings ('has not', 'denies') are not evidence. " +
+      "A plan, request or recommendation to do something (e.g. 'recommend heart team review') is not evidence that it was done. " +
+      "Documents that are not clinical records (presentations, letters, forms, unrelated text) or that belong to a different patient are never evidence; ignore them. " +
+      "Evidence must be clinically relevant to the requested service; a word that merely appears in the text is not enough. " +
+      "Use UNCLEAR when something relevant is mentioned but key details (duration, outcome, result) are missing. " +
       "Evidence quotes must be copied exactly, character-for-character, from the named document. Keep reasoning to one sentence.",
-    prompt: `Payer policy ${policy.id} criteria:\n${criteriaText}\n\nPatient chart:\n${docsForPrompt(documents)}`,
+    prompt: `${request ? `${request}\n\n` : ""}Payer policy ${policy.id} (${policy.name}) criteria:\n${criteriaText}\n\nPatient chart:\n${docsForPrompt(documents)}`,
     schema: SCHEMA,
     effort: "medium",
   });
@@ -136,25 +169,36 @@ async function llmMatch(policy, documents) {
       status = "UNCLEAR";
       reasoning = `Downgraded: no verifiable quote supports this verdict. (${reasoning})`;
     }
-    return { criterionId: c.id, text: c.text, required: c.required, ref: c.ref, status, evidence: evidence.slice(0, 3), confidence: Math.max(0, Math.min(1, r.confidence)), reasoning };
+    // claimedStatus = the model's own verdict before the quote check, used when it acts as a second opinion.
+    return { criterionId: c.id, text: c.text, required: c.required, ref: c.ref, status, claimedStatus: r.status, evidence: evidence.slice(0, 3), confidence: Math.max(0, Math.min(1, r.confidence)), reasoning };
   });
   mapped.grounding = grounding;
   return mapped;
 }
 
-// MATCHER_AUTHORITY=rules (default): rule checks decide MET/MISSING/UNCLEAR and the LLM acts as an
-// independent second opinion, with disagreements shown in the reasoning. Small models are unreliable at
-// duration arithmetic and negation, so they should not decide who gets flagged for denial.
+// MATCHER_AUTHORITY=rules (default): rule checks run first and the LLM reviews every criterion independently.
+//   The LLM says MISSING where the rules found a keyword (e.g. "exam" inside "examples", or a recommendation
+//   rather than a result) → UNCLEAR, so a human must confirm before it counts.
+//   The LLM is only unsure (UNCLEAR) → the rule verdict stands and the doubt is shown: small models often
+//   misread "A OR B" criteria as "A AND B", and that must not create false gaps.
+//   Rule MISSING / UNCLEAR are never upgraded by the LLM: small models are unreliable at duration arithmetic and
+//   negation, so they must not be able to clear a gap on their own; their view is shown as a second opinion.
 // MATCHER_AUTHORITY=llm: the LLM's verdicts are used directly (recommended for large models).
-async function advisoryMatch(policy, documents) {
+async function advisoryMatch(policy, documents, ctx) {
   const rules = ruleMatch(policy, documents);
-  const second = await llmMatch(policy, documents);
+  const second = await llmMatch(policy, documents, ctx);
   let disagreements = 0;
   const merged = rules.map((r) => {
     const s = second.find((x) => x.criterionId === r.criterionId);
-    if (!s || s.status === r.status) return r;
+    // A MET whose quote failed verification still agrees with a rule MET (the rule's quote is verified).
+    const sStatus = s?.claimedStatus || s?.status;
+    if (!s || sStatus === r.status) return r;
     disagreements++;
-    return { ...r, secondOpinion: { status: s.status, reasoning: s.reasoning }, reasoning: `${r.reasoning} (Second opinion: ${s.status}. ${s.reasoning})` };
+    const secondOpinion = { status: sStatus, reasoning: s.reasoning };
+    if (r.status === "MET" && sStatus === "MISSING") {
+      return { ...r, status: "UNCLEAR", disputed: true, confidence: Math.min(r.confidence, 0.5), secondOpinion, reasoning: `Disputed: keyword rules found "${r.evidence[0]?.quote || "a match"}", but the AI reviewer judged it MISSING: ${s.reasoning} A human must confirm this criterion.` };
+    }
+    return { ...r, secondOpinion, reasoning: `${r.reasoning} (AI reviewer: ${sStatus}. ${s.reasoning})` };
   });
   merged.disagreements = disagreements;
   merged.grounding = second.grounding;
@@ -162,9 +206,10 @@ async function advisoryMatch(policy, documents) {
   return merged;
 }
 
-export async function runMatcher(policy, documents, decisions = {}) {
+/** ctx: { patientName, procedure, reason } tells the LLM reviewer which patient and service the evidence must support. */
+export async function runMatcher(policy, documents, decisions = {}, ctx = {}) {
   const authority = (process.env.MATCHER_AUTHORITY || "rules").toLowerCase();
-  const llmFn = authority === "llm" ? () => llmMatch(policy, documents) : () => advisoryMatch(policy, documents);
+  const llmFn = authority === "llm" ? () => llmMatch(policy, documents, ctx) : () => advisoryMatch(policy, documents, ctx);
   const { result, mode, error } = await withFallback(llmFn, () => ruleMatch(policy, documents));
   // Human decisions from the gap panel override the machine verdict.
   const results = result.map((r) => (decisions[r.criterionId] === "na" ? { ...r, status: "NOT_APPLICABLE", reasoning: "Marked not applicable by a human reviewer." } : r));
@@ -173,5 +218,5 @@ export async function runMatcher(policy, documents, decisions = {}) {
 
 /** Rule-based check used by the Appeal Agent to search the *current* chart. */
 export function matchCriterionRules(criterion, documents) {
-  return evaluateSpec(criterion.spec, sentencePool(documents));
+  return evaluateSpec(criterion.spec, sentencePool(documents).filter((s) => !isTitleLine(s)));
 }

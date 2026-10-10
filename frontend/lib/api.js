@@ -41,6 +41,30 @@ export const api = {
   put: (p, b = {}) => request("PUT", p, b),
 };
 
+/** Reads browser File objects as base64 for the JSON upload endpoint. */
+function filesToPayload(files) {
+  return Promise.all(
+    [...files].map(
+      (f) =>
+        new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve({ name: f.name, mime: f.type, data: String(r.result).split(",")[1] || "" });
+          r.onerror = () => reject(new Error(`Could not read ${f.name}`));
+          r.readAsDataURL(f);
+        })
+    )
+  );
+}
+
+/** Upload reports / scans / test results to a patient's chart. They are read at the next copilot run. */
+export async function uploadFiles(patientId, files) {
+  return api.post(`/patients/${patientId}/uploads`, { files: await filesToPayload(files) });
+}
+
+export function documentFileUrl(docId) {
+  return `${API_URL}/api/documents/${docId}/file?token=${encodeURIComponent(getToken() || "")}`;
+}
+
 export function eventsUrl(caseId) {
   return `${API_URL}/api/cases/${caseId}/events?token=${encodeURIComponent(getToken() || "")}`;
 }

@@ -3,3 +3,6 @@ node_modules
 data/db.json
 data/eval-results.json
 data/policy-embeddings.json
+data/uploads/
+data/tesseract/
+.env.bak

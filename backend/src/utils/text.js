@@ -3,7 +3,8 @@
 
 export function splitSentences(text) {
   const out = [];
-  const re = /[^.!?\n]+(?:[.!?]+|\n|$)/g;
+  // A period between digits ("BMI 38.5", "13.8 g/dL") is a decimal point, not a sentence end.
+  const re = /(?:[^.!?\n]|\.(?=\d))+(?:[.!?]+|\n|$)/g;
   let m;
   while ((m = re.exec(text))) {
     if (m[0].length === 0) {
@@ -124,7 +125,7 @@ export function extractWeeks(sentence) {
   return max;
 }
 
-export const FAILURE_LANGUAGE = /(minimal (relief|improvement)|no (meaningful |significant )?(improvement|relief)|without (adequate |significant )?(relief|improvement)|persistent|failed|did not (improve|help)|continued (pain|episodes)|little relief|inadequate|not helpful|plateau|only slightly|no change)/i;
+export const FAILURE_LANGUAGE = /(minimal (relief|improvement)|no (meaningful |significant )?(improvement|relief)|without (adequate |significant )?(relief|improvement)|persistent|failed|did not (improve|help)|continued (pain|episodes)|little relief|inadequate|not helpful|plateau|only slightly|no change|despite|refractory|uncontrolled|worsening|recurrent (episodes|attacks|symptoms))/i;
 
 export function maskName(name = "") {
   return name

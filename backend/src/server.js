@@ -6,8 +6,11 @@ import { bus, audit } from "./events.js";
 import { login, logout, requireAuth, requireRole } from "./auth.js";
 import { aiModeInfo } from "./llm.js";
 import { maskName } from "./utils/text.js";
-import { PROCEDURES } from "./data/codes.js";
-import { PAYERS } from "./data/policies.js";
+import { PROCEDURES, resolveProcedure } from "./data/codes.js";
+import { PAYERS, findPolicy, POLICIES } from "./data/policies.js";
+import { PATIENTS, DOCUMENTS } from "./data/patients.js";
+import { saveFile, readFile, MAX_FILE_BYTES } from "./files.js";
+import { detectMime, isSupported } from "./agents/reader.js";
 import { buildIndex, semanticSearch, warmEmbeddings, embeddingStatus } from "./agents/policyRag.js";
 import { packetPdf } from "./pdf.js";
 import { INSURERS, REAL_PAYERS } from "./data/insurers.js";
@@ -24,7 +27,7 @@ import * as wf from "./agents/workflow.js";
 const PORT = Number(process.env.PORT || 4000);
 const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(",") || true }));
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "60mb" })); // uploads arrive as base64 JSON
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const findCase = (req, res) => {
@@ -40,7 +43,7 @@ function caseRow(c) {
     patient: maskName(c.patientName),
     patientId: c.patientId,
     cpt: c.order.cpt,
-    procedure: PROCEDURES[c.order.cpt]?.short,
+    procedure: c.coding?.procedureShort || resolveProcedure(c.order).short,
     payer: c.order.payer || c.coding?.payer || getPatient(c.patientId)?.payer,
     status: c.status,
     readiness: c.readiness ? { score: c.readiness.score, level: c.readiness.level } : null,
@@ -54,7 +57,14 @@ function caseRow(c) {
 
 function caseDetail(c) {
   const patient = getPatient(c.patientId);
-  return { ...c, patient, documents: chartDocuments(c.patientId), pendingDocuments: db().documents.filter((d) => d.patientId === c.patientId && !d.available).map(({ id, title, date }) => ({ id, title, date })) };
+  const all = db().documents.filter((d) => d.patientId === c.patientId);
+  return {
+    ...c,
+    patient,
+    documents: chartDocuments(c.patientId),
+    pendingDocuments: all.filter((d) => !d.available && !d.upload).map(({ id, title, date }) => ({ id, title, date })),
+    uploads: all.filter((d) => d.upload).map(({ id, title, date, upload, analysis }) => ({ id, title, date, upload, analysis })),
+  };
 }
 
 // ───────── health / meta ─────────
@@ -84,8 +94,8 @@ app.get("/api/patients/:id", requireAuth, (req, res) => {
   res.json({ ...p, documents: chartDocuments(p.id) });
 });
 app.post("/api/patients", requireAuth, requireRole("coordinator", "physician"), (req, res) => {
-  const { name, dob, sex, payer, memberId, noteTitle, noteText } = req.body || {};
-  if (!name || !payer || !noteText) return res.status(400).json({ error: "name, payer and noteText are required" });
+  const { name, dob, sex, payer, memberId, noteTitle, noteText, specialty } = req.body || {};
+  if (!name || !payer) return res.status(400).json({ error: "name and payer are required" });
   if (!PAYERS.includes(payer)) return res.status(400).json({ error: "Unknown payer" });
   const store = db();
   const id = newId("P");
@@ -93,15 +103,58 @@ app.post("/api/patients", requireAuth, requireRole("coordinator", "physician"), 
   const patient = {
     id, mrn: `MRN-${Math.floor(200000 + Math.random() * 99999)}`, name: name.trim(), dob: birth, sex: sex === "M" ? "M" : "F",
     age: Math.max(0, new Date().getFullYear() - Number(birth.slice(0, 4))), payer, planId: `${payer.split(" ")[0].toUpperCase()}-PLAN`, memberId: memberId || `MEM-${Math.floor(Math.random() * 1e6)}`,
-    provider: { name: req.user.role === "physician" ? req.user.name : "Imran Khan, MD", specialty: "Orthopedics", npi: "1457382910" },
+    provider: { name: req.user.role === "physician" ? req.user.name : "Imran Khan, MD", specialty: specialty?.trim() || "General Medicine", npi: "1457382910" },
     defaultOrder: null, scenario: "Uploaded by user",
   };
   store.patients.push(patient);
-  store.documents.push({ id: newId("D"), patientId: id, type: "uploaded", title: noteTitle || "Uploaded clinical note", date: new Date().toISOString().slice(0, 10), available: true, text: String(noteText) });
+  if (noteText?.trim()) store.documents.push({ id: newId("D"), patientId: id, type: "uploaded", title: noteTitle || "Uploaded clinical note", date: new Date().toISOString().slice(0, 10), available: true, text: String(noteText) });
   save();
   audit({ actorType: "human", actorId: req.user.email, action: "patient.created", payload: { patientId: id } });
   res.status(201).json(patient);
 });
+
+/** Upload reports, scans, photos or test results for a patient. Files are stored as-is (GridFS or disk);
+ *  the Report Reader agent extracts and analyses them at the start of the next copilot run. */
+app.post("/api/patients/:id/uploads", requireAuth, requireRole("coordinator", "physician"), wrap(async (req, res) => {
+  const p = getPatient(req.params.id);
+  if (!p) return res.status(404).json({ error: "Patient not found" });
+  const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ error: "No files uploaded" });
+  if (files.length > 10) return res.status(400).json({ error: "Upload at most 10 files at a time" });
+  const prepared = [];
+  for (const f of files) {
+    const name = String(f.name || "upload").slice(0, 200);
+    const mime = detectMime(name, f.mime);
+    if (!isSupported(mime)) return res.status(400).json({ error: `${name}: unsupported file type (use PDF, JPG, PNG, WEBP, DOCX or TXT)` });
+    const buffer = Buffer.from(String(f.data || ""), "base64");
+    if (!buffer.length) return res.status(400).json({ error: `${name} is empty` });
+    if (buffer.length > MAX_FILE_BYTES) return res.status(400).json({ error: `${name} is larger than 15 MB` });
+    prepared.push({ name, mime, buffer });
+  }
+  const created = [];
+  for (const { name, mime, buffer } of prepared) {
+    const fileId = await saveFile({ buffer, name, mime, patientId: p.id });
+    const doc = {
+      id: newId("D"), patientId: p.id, type: "upload", title: name, date: new Date().toISOString().slice(0, 10), available: false, text: "",
+      attachedBy: req.user.name, upload: { fileId, name, mime, size: buffer.length, status: "pending", uploadedAt: new Date().toISOString() },
+    };
+    db().documents.push(doc);
+    created.push({ id: doc.id, title: doc.title, upload: doc.upload });
+  }
+  save();
+  audit({ actorType: "human", actorId: req.user.email, action: "documents.uploaded", payload: { patientId: p.id, files: created.map((c) => c.upload.name) } });
+  res.status(201).json(created);
+}));
+
+/** Original uploaded file (opened from the chart viewer). */
+app.get("/api/documents/:id/file", requireAuth, wrap(async (req, res) => {
+  const doc = db().documents.find((d) => d.id === req.params.id && d.upload);
+  if (!doc) return res.status(404).json({ error: "File not found" });
+  const bytes = await readFile(doc.upload.fileId);
+  res.setHeader("Content-Type", doc.upload.mime);
+  res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(doc.upload.name)}"`);
+  res.end(bytes);
+}));
 
 // ───────── cases ─────────
 app.get("/api/cases", requireAuth, (req, res) => {
@@ -115,12 +168,25 @@ app.get("/api/cases", requireAuth, (req, res) => {
 });
 
 app.post("/api/cases", requireAuth, requireRole("coordinator", "physician"), (req, res) => {
-  const { patientId, cpt, reason, urgency, payer } = req.body || {};
-  if (!patientId || !PROCEDURES[cpt]) return res.status(400).json({ error: "patientId and a supported CPT are required" });
+  const { patientId, cpt, procedureName, kind, setting, reason, urgency, payer } = req.body || {};
+  // Any procedure: pick one from the catalog, or type a custom one (checked against the payer's general policy).
+  const custom = !PROCEDURES[cpt];
+  if (!patientId) return res.status(400).json({ error: "patientId is required" });
+  if (custom && !procedureName?.trim()) return res.status(400).json({ error: "Choose a procedure or type the procedure name" });
   if (payer && !PAYERS.includes(payer)) return res.status(400).json({ error: "Unknown insurer" });
   const patient = getPatient(patientId);
-  const defaultReason = patient?.defaultOrder?.cpt === cpt ? patient.defaultOrder.reason : PROCEDURES[cpt].name;
-  const c = wf.createCase({ patientId, order: { cpt, reason: reason || defaultReason, urgency, payer }, user: req.user });
+  const proc = resolveProcedure({ cpt, procedureName, kind, setting });
+  const defaultReason = patient?.defaultOrder?.cpt === cpt ? patient.defaultOrder.reason : proc.name;
+  const order = {
+    cpt: custom ? (/^\d{5}$/.test(String(cpt || "")) ? cpt : "CUSTOM") : cpt,
+    procedureName: custom ? procedureName.trim() : null,
+    kind: custom ? proc.kind : null,
+    setting: setting || (proc.benefit === "inpatient" ? "inpatient" : "outpatient"),
+    reason: reason || defaultReason,
+    urgency,
+    payer,
+  };
+  const c = wf.createCase({ patientId, order, user: req.user });
   wf.runInBackground(c);
   res.status(201).json(caseRow(c));
 });
@@ -157,7 +223,7 @@ app.post("/api/cases/:id/insurer", requireAuth, requireRole("coordinator", "phys
   if (!c) return;
   const { payer } = req.body || {};
   if (!PAYERS.includes(payer)) return res.status(400).json({ error: "Unknown insurer" });
-  if (!db().policies.some((p) => p.payer === payer && p.cpts.includes(c.order.cpt))) return res.status(400).json({ error: `${payer} has no policy for CPT ${c.order.cpt}` });
+  if (!findPolicy(db().policies, payer, c.order.cpt)) return res.status(400).json({ error: `${payer} has no policy for this procedure` });
   wf.changeInsurer(c, payer, req.user);
   res.json(caseDetail(c));
 });
@@ -179,6 +245,13 @@ app.post("/api/cases/:id/gaps/:gapId/resolve", requireAuth, requireRole("physici
   await wf.resolveGap(c, req.params.gapId, req.body || {}, req.user);
   res.json(caseDetail(c));
 }));
+
+app.post("/api/cases/:id/documents/:docId/include", requireAuth, requireRole("coordinator", "physician"), (req, res) => {
+  const c = findCase(req, res);
+  if (!c) return;
+  wf.includeUpload(c, req.params.docId, req.user);
+  res.json(caseDetail(c));
+});
 
 app.post("/api/cases/:id/gaps/skip", requireAuth, requireRole("coordinator"), (req, res) => {
   const c = findCase(req, res);
@@ -284,9 +357,8 @@ app.get("/api/insurers", requireAuth, (req, res) => {
 app.post("/api/insurers/coverage-check", requireAuth, (req, res) => {
   const { payer, cpt = "73721", age = 45, setting = "outpatient" } = req.body || {};
   if (!REAL_PAYERS.includes(payer)) return res.status(400).json({ error: "Unknown insurer" });
-  const procedure = PROCEDURES[cpt];
-  if (!procedure) return res.status(400).json({ error: "Unknown procedure" });
-  res.json(runCoverageCheck({ payer, patient: { age: Number(age) }, coding: { procedureShort: procedure.short }, order: { setting }, documents: [] }));
+  const procedure = resolveProcedure({ cpt, procedureName: req.body?.procedureName, setting });
+  res.json(runCoverageCheck({ payer, patient: { age: Number(age) }, coding: { procedureShort: procedure.short, benefit: procedure.benefit, family: procedure.family }, order: { setting }, documents: [] }));
 });
 
 // ───────── evaluation ─────────
@@ -342,7 +414,10 @@ async function main() {
     ready = await initDb();
   } catch (err) {
     console.error(`\nCould not connect to MongoDB: ${err.message}`);
-    console.error("Check MONGODB_URI in backend/.env, the database user/password, and that your IP is allowed in Atlas → Network Access.\n");
+    console.error("Check MONGODB_URI in backend/.env, the database user/password, and that your IP is allowed in Atlas → Network Access.");
+    if (/querySrv|ENOTFOUND|ETIMEOUT|ECONNREFUSED/.test(err.message) && process.env.MONGODB_URI.startsWith("mongodb+srv://"))
+      console.error("Your network may be blocking the DNS SRV/TXT lookup that mongodb+srv:// needs. Use the standard mongodb://host1,host2,host3/?tls=true&authSource=admin&replicaSet=... address instead (Atlas → Connect → Drivers, older driver version).");
+    console.error("Or leave MONGODB_URI empty to use the local JSON store.\n");
     process.exit(1);
   }
   const store = storageInfo();
@@ -351,12 +426,28 @@ async function main() {
     console.log("Database is empty. Seeding demo data…");
     await seed();
   }
-  db();
+  syncReferenceData();
   buildIndex();
   // Cases left mid-run by a restart are resumed from the start.
-  for (const c of db().cases.filter((x) => ["INTAKE", "CRITERIA_CHECK", "PACKET_DRAFTING", "ADVERSARIAL_REVIEW"].includes(x.status))) wf.runInBackground(c);
+  for (const c of db().cases.filter((x) => ["READING_REPORTS", "INTAKE", "CRITERIA_CHECK", "PACKET_DRAFTING", "ADVERSARIAL_REVIEW"].includes(x.status))) wf.runInBackground(c);
   app.listen(PORT, () => console.log(`Prior Auth Copilot API on http://localhost:${PORT} (AI: ${aiModeInfo().mode === "llm" ? `${aiModeInfo().providerLabel} ${aiModeInfo().model}` : "rules"})`));
   warmEmbeddings(); // loads bge-small in the background; search uses TF-IDF until it is ready
+}
+
+/** Policies are defined in code: refresh them in the store on every start, and add demo patients added since the
+ *  last seed (existing patients, cases and uploads are left alone). */
+function syncReferenceData() {
+  const store = db();
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+  const changed = JSON.stringify(store.policies) !== JSON.stringify(POLICIES);
+  if (changed) store.policies = clone(POLICIES);
+  const newPatients = PATIENTS.filter((p) => !store.patients.some((x) => x.id === p.id));
+  store.patients.push(...clone(newPatients));
+  store.documents.push(...clone(DOCUMENTS.filter((d) => newPatients.some((p) => p.id === d.patientId))));
+  if (changed || newPatients.length) {
+    save();
+    console.log(`Reference data synced: ${store.policies.length} policies${newPatients.length ? `, ${newPatients.length} new demo patient(s)` : ""}`);
+  }
 }
 
 // Flush pending writes before exiting (Ctrl+C, node --watch restarts).

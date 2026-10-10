@@ -3,14 +3,15 @@
 import { sentencePool, resolveQuote, isNegated, extractWeeks } from "../utils/text.js";
 import { callJSON, withFallback, docsForPrompt } from "../llm.js";
 
-const CATEGORIES = ["diagnosis", "symptom", "prior_treatment", "imaging", "medication", "exam_finding", "red_flag"];
+const CATEGORIES = ["diagnosis", "symptom", "prior_treatment", "imaging", "test_result", "medication", "exam_finding", "red_flag"];
 
 const RULES = [
-  { category: "diagnosis", re: /^(assessment|impression)|suspected|diagnos/i },
+  { category: "diagnosis", re: /^(assessment|impression|diagnosis)|suspected|diagnos/i },
   { category: "red_flag", re: /(foot drop|progressive (weakness|neurologic)|cauda equina|saddle anesthesia|bowel or bladder|unexplained weight loss|history of cancer)/i, checkNegation: true },
-  { category: "prior_treatment", re: /(physical therapy|\bPT\b|injection|brace|home exercise)/i, exclude: /^(plan|continue|recommend|request)/i },
+  { category: "prior_treatment", re: /(physical therapy|physiotherapy|\bPT\b|injection|brace|home exercise|weight.loss program|chemotherapy cycles|medical therapy|despite)/i, exclude: /^(plan|continue|recommend|request)/i },
   { category: "medication", re: /\b\d+\s?mg\b/i },
-  { category: "imaging", re: /(x-ray|radiograph|\bMRI\b|\bCT\b)/i, exclude: /^plan|request|urgent mri|mri of the/i },
+  { category: "imaging", re: /(x-ray|radiograph|\bMRI\b|\bCT\b|ultrasound|echocardiogra|angiogra|catheteri[sz]ation|\bPET\b|scan (shows|showed|revealed)|mammogra)/i, exclude: /^plan|request|urgent mri|mri of the/i },
+  { category: "test_result", re: /(\bECG\b|\bEKG\b|troponin|hemoglobin|haemoglobin|creatinine|eGFR|HbA1c|cholesterol|\bLDL\b|ejection fraction|\bLVEF\b|biopsy|patholog|histolog|stress test|\bBMI\b|\d+(\.\d+)?\s?(mg\/dL|mmol\/L|g\/dL))/i },
   { category: "exam_finding", re: /(mcmurray|joint line|lachman|effusion|straight leg raise|reflex|strength|sensation|tenderness)/i },
   { category: "symptom", re: /(pain|locking|catching|giving way|instability|radiat|weakness|numb)/i },
 ];
@@ -67,7 +68,7 @@ async function llmIntake(documents) {
       "You are a clinical documentation abstractor for a prior authorization team. Extract structured facts from the chart. " +
       "Each evidence_quote must be copied character-for-character from a single document — never paraphrase inside the quote. " +
       "Only extract facts that are affirmatively documented; skip negated findings except to note absent red flags are NOT facts.",
-    prompt: `Extract diagnoses, symptoms, prior treatments (with duration and outcome), imaging, medications, exam findings and red flags.\n\n${docsForPrompt(documents)}`,
+    prompt: `Extract diagnoses, symptoms, prior treatments (with duration and outcome), imaging, test results (labs, ECG, echo, pathology), medications, exam findings and red flags. The chart may cover any specialty.\n\n${docsForPrompt(documents)}`,
     schema: SCHEMA,
     effort: "low",
   });

@@ -33,6 +33,7 @@ export default function CriteriaChecklist({ criteria = [], policy, activeQuote, 
                   <span className={`chip px-1.5 py-0 text-[10px] ${r.required ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>{r.required ? "required" : "supporting"}</span>
                   <span className={`text-xs font-semibold ${m.cls}`}>{m.label}</span>
                   {r.confidence != null && <span className="text-xs text-slate-400">{Math.round(r.confidence * 100)}% conf.</span>}
+                  {r.disputed && <span className="chip bg-orange-100 px-1.5 py-0 text-[10px] text-orange-700" title="Keyword rules and the AI reviewer disagree; a human must confirm">AI disputed</span>}
                 </div>
                 <div className="mt-1 text-sm font-medium text-slate-800">{r.text}</div>
                 <div className="mt-1 text-xs text-slate-500">{r.reasoning}</div>

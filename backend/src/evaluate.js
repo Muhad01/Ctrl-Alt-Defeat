@@ -4,11 +4,12 @@
 //   npm run eval            uses the configured AI mode
 //   npm run eval -- --rules forces the rule engine
 import "dotenv/config";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
 import { PATIENTS, DOCUMENTS } from "./data/patients.js";
 import { POLICIES } from "./data/policies.js";
+import { resolveProcedure } from "./data/codes.js";
 import { runMatcher } from "./agents/matcher.js";
 import { readinessScore } from "./agents/readiness.js";
 import { validateQuote } from "./utils/text.js";
@@ -40,7 +41,9 @@ export async function runEvaluation({ forceRules = false } = {}) {
     for (const ec of EVAL_CASES) {
       const policy = POLICIES.find((p) => p.id === ec.policyId);
       const documents = DOCUMENTS.filter((d) => d.patientId === ec.patientId && d.available);
-      const { results, mode, error, grounding } = await runMatcher(policy, documents);
+      const patient = PATIENTS.find((p) => p.id === ec.patientId);
+      const ctx = { patientName: patient.name, procedure: resolveProcedure(patient.defaultOrder).name, reason: patient.defaultOrder.reason };
+      const { results, mode, error, grounding } = await runMatcher(policy, documents, {}, ctx);
       if (grounding) for (const k of Object.keys(model)) model[k] += grounding[k];
       const rows = results.map((r) => {
         const expected = ec.expected[r.criterionId];
@@ -104,7 +107,7 @@ export function printReport(r) {
 }
 
 export function saveReport(r) {
-  const file = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1")), "..", "data", "eval-results.json");
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "data", "eval-results.json");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(r, null, 1));
   return file;

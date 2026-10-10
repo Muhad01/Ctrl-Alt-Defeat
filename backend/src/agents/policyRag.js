@@ -2,6 +2,7 @@
 // Pipeline: chunk policies by section → metadata filter (payer + CPT) → rank sections by cosine
 // similarity: bge-small embeddings when loaded, TF-IDF vectors as the fallback.
 import { db, loadVectors, saveVectors } from "../db.js";
+import { findPolicy } from "../data/policies.js";
 
 const STOP = new Set("a an and are as at be by for from has have in is it its of on or that the this to was were will with without must may not".split(" "));
 
@@ -51,11 +52,13 @@ function cosine(a, b) {
   return s;
 }
 
-export function search(query, { payer, cpt, limit = 8 } = {}) {
+const matches = ({ payer, cpt, policyId }) => (c) => (!policyId || c.policyId === policyId) && (!payer || c.payer === payer) && (!cpt || c.cpts.includes(cpt) || c.cpts.includes("*"));
+
+export function search(query, { payer, cpt, policyId, limit = 8 } = {}) {
   if (!index) buildIndex();
   const qv = vectorize(tokenize(query), index.idf);
   return index.chunks
-    .filter((c) => (!payer || c.payer === payer) && (!cpt || c.cpts.includes(cpt)))
+    .filter(matches({ payer, cpt, policyId }))
     .map((c) => ({ policyId: c.policyId, payer: c.payer, ref: c.ref, title: c.title, text: c.text, score: Number(cosine(qv, c.vec).toFixed(4)) }))
     .filter((c) => c.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -111,13 +114,13 @@ const chunkKey = (c) => `${c.policyId}§${c.ref}:${c.text.length}`;
 const dot = (a, b) => a.reduce((s, x, i) => s + x * b[i], 0);
 
 /** Semantic search when embeddings are ready, otherwise TF-IDF. */
-export async function semanticSearch(query, { payer, cpt, limit = 8 } = {}) {
-  if (embed.status !== "ready") return { method: "tfidf", results: search(query, { payer, cpt, limit }) };
+export async function semanticSearch(query, { payer, cpt, policyId, limit = 8 } = {}) {
+  if (embed.status !== "ready") return { method: "tfidf", results: search(query, { payer, cpt, policyId, limit }) };
   if (!index) buildIndex();
   // bge models recommend this instruction prefix for retrieval queries
   const [qv] = await embedTexts([`Represent this sentence for searching relevant passages: ${query}`]);
   const results = index.chunks
-    .filter((c) => (!payer || c.payer === payer) && (!cpt || c.cpts.includes(cpt)))
+    .filter(matches({ payer, cpt, policyId }))
     .map((c) => ({ policyId: c.policyId, payer: c.payer, ref: c.ref, title: c.title, text: c.text, score: Number(dot(qv, embed.vectors.get(chunkKey(c)) || qv.map(() => 0)).toFixed(4)) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
@@ -125,12 +128,13 @@ export async function semanticSearch(query, { payer, cpt, limit = 8 } = {}) {
 }
 
 export async function runPolicyRetrieval({ payer, cpt, procedure, diagnoses }) {
-  const policy = db().policies.find((p) => p.payer === payer && p.cpts.includes(cpt));
+  // Procedure-specific policy first; anything else falls back to the payer's general medical-necessity policy.
+  const policy = findPolicy(db().policies, payer, cpt);
   if (!policy) return { policy: null, criteria: [], retrieved: [], method: null };
-  const query = `${procedure} ${diagnoses.map((d) => d.desc).join(" ")} conservative therapy imaging criteria medically necessary`;
-  const { method, results } = await semanticSearch(query, { payer, cpt, limit: 5 });
+  const query = `${procedure} ${diagnoses.map((d) => d.desc).join(" ")} prior treatment diagnostic testing criteria medically necessary`;
+  const { method, results } = await semanticSearch(query, { policyId: policy.id, limit: 5 });
   return {
-    policy: { id: policy.id, name: policy.name, payer: policy.payer, version: policy.version, real: Boolean(policy.real) },
+    policy: { id: policy.id, name: policy.name, payer: policy.payer, version: policy.version, real: Boolean(policy.real), general: policy.cpts.includes("*") },
     criteria: policy.criteria.map(({ id, ref, text, required }) => ({ id, ref, text, required, policy_citation: `${policy.id} §${ref}` })),
     retrieved: results,
     method,

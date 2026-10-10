@@ -9,15 +9,23 @@ const TMP = path.join(os.tmpdir(), `pac-selftest-${Date.now()}.json`);
 process.env.DB_FILE = TMP;
 process.env.AI_MODE = "heuristic";
 process.env.STEP_DELAY_MS = "0";
+process.env.PIPELINE_STEP_DELAY_MS = "0";
 process.env.PAYER_DECISION_DELAY_MS = "5";
 process.env.EMBEDDINGS = "off";
-delete process.env.MONGODB_URI;
+// Empty (not deleted): dotenv never overrides a defined variable, so backend/.env cannot point the
+// self-test at your real MongoDB, which seeding would wipe.
+process.env.MONGODB_URI = "";
+const UPLOADS = path.join(os.tmpdir(), `pac-selftest-uploads-${Date.now()}`);
+process.env.UPLOAD_DIR = UPLOADS;
 
 const { initDb, db, getCase, flush } = await import("./db.js");
 const { seed } = await import("./seed.js");
 const wf = await import("./agents/workflow.js");
 const { PATIENTS, DOCUMENTS } = await import("./data/patients.js");
-const { POLICIES, PAYERS } = await import("./data/policies.js");
+const { POLICIES, PAYERS, findPolicy } = await import("./data/policies.js");
+const { saveFile } = await import("./files.js");
+const { extractText, isSupported } = await import("./agents/reader.js");
+const { PDFDocument, StandardFonts } = await import("pdf-lib");
 const { INSURERS, REAL_PAYERS } = await import("./data/insurers.js");
 const { runMatcher } = await import("./agents/matcher.js");
 const { runCoding } = await import("./agents/coding.js");
@@ -52,9 +60,10 @@ const EXPECTED = {
   P005: "MET UNCLEAR MET MET MISSING", P006: "MET MISSING MET MISSING MET", P007: "MET UNCLEAR MET MET MET", P008: "MET MET MET MET MET",
   P009: "MET MISSING MET MET MET", P010: "MET MET MET MISSING MET", P011: "MET MET MET MET MISSING", P012: "MET MET MET MET MET",
   P013: "MET MET MET MET MISSING", P014: "MET MET MISSING MET MET", P015: "MET UNCLEAR MET MET MET", P016: "MET MET MET MET MET",
+  P017: "MET MET MET MET MET", P018: "MET MISSING MISSING MET MET", P019: "MET MET MISSING MET MET", P020: "MET MET MET MET MET",
 };
 for (const p of PATIENTS) {
-  const policy = POLICIES.find((x) => x.payer === p.payer && x.cpts.includes(p.defaultOrder.cpt));
+  const policy = findPolicy(POLICIES, p.payer, p.defaultOrder.cpt);
   const docs = DOCUMENTS.filter((d) => d.patientId === p.id && d.available);
   const { results: r } = await runMatcher(policy, docs);
   const got = r.map((x) => x.status).join(" ");
@@ -185,7 +194,75 @@ for (const [id, want, label] of [
   check("Appeals", `${id} appeal ${want} (${label})`, a.status === want, a.status);
 }
 
-// ── 11. Readiness, evaluation, retrieval, PDF, audit ──
+// ── 11. Any procedure, not only imaging ──
+check("Any procedure", "Every payer has a general policy for procedures without a specific one", PAYERS.every((p) => findPolicy(POLICIES, p, "CUSTOM")?.cpts.includes("*")));
+c = wf.createCase({ patientId: "P001", order: { cpt: "CUSTOM", procedureName: "Tonsillectomy", kind: "therapeutic", setting: "inpatient", reason: "Recurrent tonsillitis" }, user: priya });
+await wf.runFrom(c);
+check("Any procedure", "A typed (custom) procedure is checked against the payer's general policy", c.policy?.id === "BRH-GENERAL" && c.criteria.length === 5, c.policy?.id);
+c = wf.createCase({ patientId: "P018", order: { cpt: "92928", reason: "Exertional chest pain" }, user: priya });
+await wf.runFrom(c);
+check("Any procedure", "PCI without a stress test opens a gap (CI2)", openGap(c, "CI2"));
+await wf.resolveGap(c, openGap(c, "CI2").id, { action: "attach_document", documentId: "D018-2" }, khan);
+await wf.resolveGap(c, openGap(c, "CI3").id, { action: "confirm_not_done" }, khan);
+await settle(c, ["READY_FOR_REVIEW", "NEEDS_INFO"]);
+check("Any procedure", "Attaching the stress test report meets CI2 (medication gap remains)", crit(c, "CI2") === "MET" && crit(c, "CI3") === "MISSING", `${crit(c, "CI2")} ${crit(c, "CI3")}`);
+c = wf.createCase({ patientId: "P019", order: { cpt: "27447", reason: "Severe osteoarthritis right knee" }, user: priya });
+await wf.runFrom(c);
+const tkaBefore = crit(c, "J3");
+wf.changeInsurer(c, "Indus Health", priya);
+await sleep(30);
+await settle(c, ["READY_FOR_REVIEW", "NEEDS_INFO"]);
+check("Any procedure", `Knee replacement: 8 weeks physio is ${tkaBefore} on Medicare (12), ${crit(c, "J3")} on Indus Health (6)`, tkaBefore === "MISSING" && crit(c, "J3") === "MET");
+const P020 = PATIENTS.find((p) => p.id === "P020");
+const bariatricCov = runCoverageCheck({ payer: "Jubilee Life (Royale Plan)", patient: P020, coding: { procedureShort: "Laparoscopic gastric bypass", benefit: "inpatient", family: "bariatric" }, order: { setting: "inpatient" }, documents: DOCUMENTS.filter((d) => d.patientId === "P020") });
+check("Any procedure", "Jubilee excludes obesity surgery (plan exclusion → NOT_COVERED)", bariatricCov.status === "NOT_COVERED" && bariatricCov.findings.some((f) => f.rule === "Plan exclusion"));
+const cabgCov = runCoverageCheck({ payer: "EFU Life (Mukammal Sehat)", patient: PATIENTS.find((p) => p.id === "P017"), coding: { procedureShort: "CABG", benefit: "inpatient", family: "cardiac_surgery" }, order: { setting: "inpatient" }, documents: [] });
+check("Any procedure", "Heart surgery is an inpatient benefit under EFU (COVERED)", cabgCov.status === "COVERED", cabgCov.status);
+
+// ── 12. Uploaded reports and scans ──
+check("Uploads", "Unsupported file types are rejected (zip)", !isSupported("application/zip") && isSupported("application/pdf") && isSupported("image/jpeg"));
+const pdfDoc = await PDFDocument.create();
+const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+const page = pdfDoc.addPage();
+["ECHOCARDIOGRAM REPORT", "Patient: Maria Lopez   Date: 09/28/2026", "Left ventricular ejection fraction is 35%, reduced.", "Moderate mitral regurgitation is present.", "Impression: Reduced systolic function."].forEach((line, i) => page.drawText(line, { x: 50, y: 760 - i * 20, size: 12, font }));
+const pdfBytes = Buffer.from(await pdfDoc.save());
+const ex = await extractText({ buffer: pdfBytes, name: "echo.pdf", mime: "application/pdf" });
+check("Uploads", `Digital PDF text is extracted (${ex.method})`, ex.method === "PDF text layer" && /ejection fraction is 35%/.test(ex.text), ex.text.slice(0, 60));
+const store = db();
+for (const [name, mime, buffer] of [["echo.pdf", "application/pdf", pdfBytes], ["lab.txt", "text/plain", Buffer.from("LAB REPORT\nPatient: Maria Lopez\nHemoglobin 9.8 g/dL (low).\nCreatinine 1.1 mg/dL.")]]) {
+  const fileId = await saveFile({ buffer, name, mime, patientId: "P001" });
+  store.documents.push({ id: `D-test-${name}`, patientId: "P001", type: "upload", title: name, date: "2026-10-10", available: false, text: "", upload: { fileId, name, mime, size: buffer.length, status: "pending" } });
+}
+c = wf.createCase({ patientId: "P001", order: { cpt: "73721", reason: "Suspected medial meniscal tear" }, user: priya });
+await wf.runFrom(c);
+const echo = store.documents.find((d) => d.id === "D-test-echo.pdf");
+const lab = store.documents.find((d) => d.id === "D-test-lab.txt");
+check("Uploads", "Report Reader adds uploaded files to the chart before intake", echo.available && lab.available && c.timeline.some((t) => t.step === "reader" && t.status === "done"));
+check("Uploads", `Report analysis: "${echo.analysis?.documentType}", ${echo.analysis?.keyFindings.length} grounded finding(s)`, echo.analysis?.documentType === "Echocardiogram" && echo.analysis.keyFindings.every((f) => echo.text.includes(f.quote)));
+check("Uploads", "Decimal lab values stay in one sentence (Hemoglobin 9.8)", c.facts.some((f) => f.evidence_quote.includes("Hemoglobin 9.8 g/dL")));
+
+// Irrelevant uploads must never become evidence (regression: a project presentation once scored 50%+).
+const IRRELEVANT = "FROM PROJECT TO PROFESSION\nHow your Final Year Project becomes your first real engineering role.\nBring concrete examples to discuss with recommenders, forecasting, MLOps.\nMake a plan, set milestones, and present results to the panel.\nThe report shows what you learned.";
+const OTHER_PATIENT = "LAB REPORT\nPatient: Zubair Hassan   DOB: 02/02/1970\nHemoglobin 13.9 g/dL. Creatinine 0.9 mg/dL. Glucose 92 mg/dL within the normal range.\nImpression: normal blood counts and kidney function.";
+for (const [id, name, text] of [["D-test-fyp", "fyp-presentation.txt", IRRELEVANT], ["D-test-other", "other-patient-lab.txt", OTHER_PATIENT]]) {
+  const buffer = Buffer.from(text);
+  const fileId = await saveFile({ buffer, name, mime: "text/plain", patientId: "P016" });
+  store.documents.push({ id, patientId: "P016", type: "upload", title: name, date: "2026-10-10", available: false, text: "", upload: { fileId, name, mime: "text/plain", size: buffer.length, status: "pending" } });
+}
+c = wf.createCase({ patientId: "P016", order: { cpt: "CUSTOM", procedureName: "Colonoscopy", setting: "day_care", reason: "Gastro symptoms" }, user: priya });
+await wf.runFrom(c);
+const fyp = store.documents.find((d) => d.id === "D-test-fyp");
+const other = store.documents.find((d) => d.id === "D-test-other");
+check("Relevance gate", "A non-clinical upload (project presentation) is kept out of the chart", fyp.upload.status === "excluded" && !fyp.available && !c.criteria.some((r) => r.evidence.some((e) => e.docId === fyp.id)), fyp.upload.excludedReason);
+check("Relevance gate", "A report naming a different patient is kept out of the chart", other.upload.status === "excluded" && /Zubair Hassan/.test(other.upload.excludedReason), other.upload.excludedReason);
+wf.includeUpload(c, other.id, priya);
+await settle(c, ["READY_FOR_REVIEW", "NEEDS_INFO"]);
+check("Relevance gate", "A coordinator can add an excluded upload anyway (audited)", other.available && db().audit.some((a) => a.action === "upload.included_after_exclusion"));
+const keywordOnly = [{ id: "X1", title: "Notes", date: "2026-10-10", text: IRRELEVANT }];
+const { results: generic } = await runMatcher(findPolicy(POLICIES, "Indus Health", "CUSTOM"), keywordOnly);
+check("Relevance gate", "Keyword-only text (\"examples\", \"recommenders\", \"plan\") meets no general criterion", generic.every((r) => r.status === "MISSING"), generic.map((r) => `${r.criterionId}=${r.status}`).join(" "));
+
+// ── 13. Readiness, evaluation, retrieval, PDF, audit ──
 check("Readiness", "Label is never READY while a required criterion is unmet (C-1003)", getCase("C-1003").readiness.level !== "READY");
 const ev = await runEvaluation({ forceRules: true });
 check("Evaluation", `6-case evaluation: accuracy ${ev.metrics.criteriaCorrect}/${ev.metrics.criteriaTotal}, grounding ${ev.metrics.verifiedQuotes}/${ev.metrics.citedQuotes}, recall ${ev.metrics.caughtGaps}/${ev.metrics.plantedGaps}`, ev.metrics.criteriaAccuracy === 1 && ev.metrics.groundingRate === 1 && ev.metrics.gapRecall === 1 && ev.metrics.insurerEffect);
@@ -199,6 +276,7 @@ check("Audit log", `Append-only audit trail recorded ${db().audit.length} entrie
 // ── report ──
 await flush();
 fs.rmSync(TMP, { force: true });
+fs.rmSync(UPLOADS, { recursive: true, force: true });
 let group = "";
 for (const r of results) {
   if (r.group !== group) {

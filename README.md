@@ -1,8 +1,8 @@
 # Prior Auth Copilot
 
-An agentic prior authorization and denial-prevention system. A team of agents reads the chart, retrieves the payer's coverage criteria, matches every criterion to verbatim chart evidence, closes documentation gaps with the clinician, drafts the Letter of Medical Necessity, argues with a simulated insurer, verifies the packet, predicts denial risk, waits for human approval, submits to a (mock) payer, and drafts the appeal if a request is denied.
+An agentic prior authorization and denial-prevention system for any procedure, test, surgery or treatment (imaging, heart surgery, angioplasty, joint replacement, chemotherapy, bariatric surgery, or anything typed in by name). A team of agents reads the patient's uploaded reports and scans, reads the chart, retrieves the payer's coverage criteria, matches every criterion to verbatim chart evidence, closes documentation gaps with the clinician, drafts the Letter of Medical Necessity, argues with a simulated insurer, verifies the packet, predicts denial risk, waits for human approval, submits to a (mock) payer, and drafts the appeal if a request is denied.
 
-See [PRIOR_AUTH_COPILOT.md](PRIOR_AUTH_COPILOT.md) for the product spec and [INNOVATION_FEATURES.md](INNOVATION_FEATURES.md) for the differentiating features.
+See [PRIOR_AUTH_COPILOT_MVP.md](PRIOR_AUTH_COPILOT_MVP.md) for the product spec and [INNOVATION_FEATURES.md](INNOVATION_FEATURES.md) for the differentiating features.
 
 ## Quick start
 
@@ -23,17 +23,52 @@ Open http://localhost:3000 and use a one-click demo account (password `demo123`)
 
 The database is seeded automatically on first start (MongoDB if `MONGODB_URI` is set, otherwise `backend/data/db.json`). Reset it with `npm run seed` or from **Settings → Reset demo data** as the manager.
 
+## Any procedure, not only MRI
+
+The order form lists procedures by specialty, and **Other procedure** accepts any name (kidney transplant, tonsillectomy, dialysis…).
+
+| Procedure family | Examples (CPT) | Policy template | What the criteria check |
+|---|---|---|---|
+| Knee / lumbar MRI | 73721, 72148 | Knee MRI, Lumbar MRI | Symptoms, weeks of physio, NSAIDs, X-ray, red flags |
+| Cardiac surgery | CABG 33533, AVR 33405, TAVR 33361 | Cardiac Surgery | Angiography/echo confirmation, symptoms, high-risk anatomy or failed medical therapy, heart-team risk score, pre-op tests |
+| Cardiac intervention | Cath 93458, PCI 92928 | Catheterization and PCI | Symptoms, ACS or positive stress test, medical therapy (weeks vary by payer), ECG, renal function |
+| Joint replacement | TKA 27447, THA 27130 | Total Joint Replacement | Advanced arthritis on X-ray, functional limitation, weeks of conservative care, medical clearance, BMI |
+| Oncology | Chemo 96413, PET-CT 78815 | Oncology | Pathology, stage, oncologist/tumour-board plan, ECOG, baseline labs |
+| Bariatric | Gastric bypass 43644 | Bariatric Surgery | BMI threshold (40, or 37.5 at Indus Health), comorbidities, supervised weight-loss program, psychology clearance |
+| Everything else | Lap chole, colonoscopy, hysterectomy, cataract, brain MRI, CT, echo, any typed procedure | General Medical Necessity | Diagnosis, objective findings, prior treatment or reason it is not appropriate, clinician recommendation, pre-procedure assessment |
+
+Every payer (4 mock + 5 real) has all 8 policies (72 in total). The Coverage Check uses the matching plan benefit: outpatient test, day-care procedure or inpatient surgery. It also checks plan exclusions, so Jubilee rejects obesity surgery. Policies are defined in `backend/src/data/policies.js` and refreshed in the database on every API start.
+
+## Uploading reports and scans
+
+On **New Case** (existing or new patient), and from the case workspace (**Add reports**, or **Attach document** on a gap), staff can upload up to 10 files of 15 MB each: PDF, JPG, PNG, WEBP, DOCX or TXT. The **Report Reader** agent runs first in the pipeline:
+
+| File | How it is read |
+|---|---|
+| TXT / DOCX / PDF with a text layer | Text extracted directly |
+| Scanned PDF, photo or image | Vision model transcription (Claude reads PDFs natively; other providers get page images). With no LLM configured: offline OCR (Tesseract, ~10 MB language data downloaded once) |
+
+It then analyses each report: report type (lab, ECG, echo, angiography, pathology, imaging, discharge summary…), a short summary, and key findings with abnormal values flagged. A finding is kept only if its quote is found in the transcribed text.
+
+**Relevance gate.** An upload enters the chart only if it is a clinical record of this patient. The LLM screens it (clinical document? whose name is on it? relevant to the requested service?). Without an LLM, a medical-vocabulary check is used: seeded clinical records score 4 or more term groups, a slide deck scores 0, and the threshold is 3. A document printing a different patient's name is also kept out. Excluded files stay visible in the chart panel with the reason, and a coordinator can **Add to chart anyway** (audited). Clinical documents judged unrelated to the request are added with a warning. The transcription becomes a normal chart document, so intake, criteria matching and the letter must still quote it verbatim. Low-confidence reads are flagged, and the original file opens from the chart. Originals are stored in MongoDB GridFS (`uploads.files` / `uploads.chunks`), or in `backend/data/uploads/` without MongoDB.
+
 ## AI modes
 
-Every agent has a deterministic rule-based implementation, so the app works fully offline. To use an LLM, put a key in `backend/.env` (see `.env.example`) and restart the API:
+Every agent has a deterministic rule-based implementation, so the app works fully offline. To use an LLM, set a provider and key in `backend/.env` (see `backend/.env.example`) and restart the API:
 
 ```
-MISTRAL_API_KEY=...            # preferred when both keys are set; or force with AI_PROVIDER=mistral|claude
-MISTRAL_MODEL=ministral-3b-2512
-# or: ANTHROPIC_API_KEY=...    # uses claude-opus-5-5
+LLM_PROVIDER=auto      # auto | mistral | claude | groq | ollama | rules
+                       # auto = Claude, else Mistral, else Groq (whichever key is set), else rules
+MISTRAL_API_KEY=...    MISTRAL_MODEL=ministral-3b-2512
+GROQ_API_KEY=...       GROQ_MODEL=openai/gpt-oss-120b   GROQ_JSON_MODE=schema
+ANTHROPIC_API_KEY=...  CLAUDE_MODEL=claude-opus-5-5
+OLLAMA_URL=http://localhost:11434   OLLAMA_MODEL=qwen2.5:7b-instruct   OLLAMA_VISION_MODEL=qwen2.5vl:7b
+VISION_MODEL=          # optional override for reading scans (Groq default: llama-4-scout)
 ```
 
-With a key set, the Intake, Criteria Matcher, Packet Writer, Verifier audit, Insurer Simulator and Appeal classifier call the model with JSON-schema structured outputs. Model output is never trusted as-is:
+`AI_PROVIDER` still works as an alias of `LLM_PROVIDER`. `PIPELINE_STEP_DELAY_MS` sets the pause between agent steps, and `ESTIMATED_MANUAL_MINUTES_PER_PACKET` sets the baseline behind the "minutes saved" estimate.
+
+With a key set, the Report Reader, Intake, Criteria Matcher, Packet Writer, Verifier audit, Insurer Simulator and Appeal classifier call the model with JSON-schema structured outputs. Model output is never trusted as-is:
 
 - Every quote is resolved to verbatim chart text (`backend/src/utils/text.js`); anything that cannot be matched is dropped, and a MET verdict without a verifiable quote becomes UNCLEAR.
 - The letter writer may only reference pre-verified evidence ids; sentences citing anything else are removed.
@@ -42,16 +77,17 @@ With a key set, the Intake, Criteria Matcher, Packet Writer, Verifier audit, Ins
 
 Small-model safeguards (`ministral-3b-2512` agreed with the expected criteria verdicts on 29 of 40 test criteria, mostly by answering UNCLEAR where the chart was clear):
 
-- `MATCHER_AUTHORITY=rules` (default): rule checks decide each criterion, the LLM is a second opinion and disagreements are shown in the reasoning. Use `llm` for larger models.
+- `MATCHER_AUTHORITY=rules` (default): rule checks run first, and the LLM independently reviews every criterion. It sees the patient, the requested service and the clinical reason. If the rules found a keyword but the LLM says MISSING (not real evidence, wrong patient, or a recommendation rather than a result), the criterion becomes **UNCLEAR, marked "AI disputed"**, and a human must confirm it. If the LLM is only unsure, the rule verdict stands and the doubt is shown. The LLM can never turn a MISSING into MET on its own. Use `llm` for larger models.
+- Keyword rules match whole-word stems only ("exam" does not match "examples"), and document title lines are not evidence.
 - `LETTER_STYLE=hybrid` (default): clinical sections of the letter are built from verified quotes and the model writes only the Medical Necessity paragraph. Use `full` to let the model write every section.
 
 ## Test data and automated tests
 
 ```bash
-npm --prefix backend test   # 73 end-to-end checks on a throwaway database (your data is untouched)
+npm --prefix backend test   # 93 end-to-end checks on a throwaway database (your data is untouched)
 ```
 
-**Patients (16)**
+**Patients (20)**
 
 | Patient | Insurer | What it tests |
 |---|---|---|
@@ -71,6 +107,10 @@ npm --prefix backend test   # 73 end-to-end checks on a throwaway database (your
 | Kamran Ali | Medicare | Misfiled physio note for "Kamran Alvi"; verifier identity mismatch (C-1009) |
 | Zainab Bibi | Northstar | 8 weeks of PT with no outcome stated (UNCLEAR); only negative exam tests |
 | Usman Tariq | BlueRiver | Everything documented but no codable diagnosis; verifier coding failure, rejected (C-1010) |
+| Tariq Mehmood | BlueRiver | Heart surgery (CABG): angiography, heart team and STS score all documented |
+| Rubina Akhtar | Northstar | Angioplasty (PCI): no stress test (outside record can be attached) and only 3 of 8 weeks of medication |
+| Saima Khan | Medicare | Knee replacement: 8 weeks of physio fails Medicare (12) but passes Indus Health (6) |
+| Imran Butt | Indus Health | Gastric bypass: BMI 38.5 passes Indus Health (37.5), fails BlueRiver (40); Jubilee excludes obesity surgery |
 
 **Seeded cases:** C-1001 approved; C-1002, C-1005 and C-1008 appeal drafted; C-1003 and C-1006 needs info; C-1004, C-1007 and C-1009 ready for review; C-1010 rejected.
 
@@ -108,13 +148,16 @@ The backend stores everything in MongoDB when `MONGODB_URI` is set, and in `back
    MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
    MONGODB_DB=prior_auth_copilot
    ```
-6. Restart the API (`npm run dev`). On first start it seeds the demo data into Atlas automatically. To reseed later, run `npm run seed`.
+   If your network times out on the DNS lookup that `mongodb+srv://` needs, use the standard address that lists the three shard hosts instead (`mongodb://<user>:<password>@<shard-00-00>:27017,<shard-00-01>:27017,<shard-00-02>:27017/?tls=true&authSource=admin&replicaSet=<replica-set>`). In Atlas you get it by choosing an older driver version under Connect → Drivers. Special characters in the password must be URL-encoded.
+6. Check the connection: `npm run db:check`. It prints the host (never the password) and the collection counts, and changes nothing.
+7. Restart the API (`npm run dev`). On first start it seeds the demo data into Atlas automatically. To reseed later, run `npm run seed`. The self-test (`npm --prefix backend test`) always uses a throwaway local file and never touches your MongoDB.
 
 | Collection | Contents |
 |---|---|
 | `users`, `sessions` | Demo accounts and login tokens |
 | `patients`, `documents` | Synthetic patients and chart notes |
 | `policies`, `policy_chunks` | Mock payer policies, and policy sections with their 384-dimension bge-small embeddings |
+| `uploads.files`, `uploads.chunks` | GridFS: original uploaded reports, scans and photos |
 | `cases` | Each case with facts, criteria results, gaps, packet, verifier, simulator, readiness and timeline embedded (one read per case) |
 | `audit_log` | Append-only: the code only ever inserts |
 | `outcome_history` | Synthetic plus live outcomes for analytics and the learning loop |
@@ -143,7 +186,8 @@ Six hand-labeled cases (8 weeks PT; 4 weeks vs an insurer needing 6; the same ch
 
 | Engine | Criteria accuracy | Grounding rate | Gap recall |
 |---|---|---|---|
-| Rules (default decision-maker) | 100% (30/30) | 100% | 100% (5/5), 0 false gaps |
+| Rules only (no LLM) | 100% (30/30) | 100% | 100% (5/5), 0 false gaps |
+| Rules + Mistral `ministral-3b-2512` reviewer (default `MATCHER_AUTHORITY=rules`) | 100% (30/30), two runs | 100% | 100% (5/5), 0 false gaps |
 | Mistral `ministral-3b-2512` deciding alone (`MATCHER_AUTHORITY=llm`) | 76.7% (23/30) | 100% | 80% (4/5), 4 false gaps |
 
 The rule engine was written against these same synthetic charts, so its score is not a held-out result. Results also appear on the Analytics page.
@@ -189,7 +233,9 @@ backend/   Node.js + Express 5, MongoDB (JSON-file fallback), Server-Sent Events
 |---|---|---|
 | POST | `/api/auth/login` | Login, returns bearer token |
 | GET | `/api/cases` | Case queue (filters: status, payer, risk, q) |
-| POST | `/api/cases` | Create a case and start the agent graph |
+| POST | `/api/cases` | Create a case and start the agent graph (`cpt` from the catalog, or `cpt: "CUSTOM"` + `procedureName`) |
+| POST | `/api/patients/:id/uploads` | Upload reports / scans (base64 JSON, ≤ 10 files, 15 MB each); read at the next copilot run |
+| GET | `/api/documents/:id/file` | Original uploaded file |
 | GET | `/api/cases/:id` | Full case state |
 | GET | `/api/cases/:id/events` | SSE stream of agent progress |
 | POST | `/api/cases/:id/gaps/:gapId/resolve` | Attach document / add note / N/A / confirm not done |

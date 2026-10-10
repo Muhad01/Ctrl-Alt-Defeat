@@ -23,8 +23,11 @@ import { runCoverageCheck } from "./coverage.js";
 import { decide, denialLetter } from "./payerMock.js";
 import { runAppeal } from "./appeal.js";
 import { aiModeInfo } from "../llm.js";
+import { extractText, analyseText, exclusionReason } from "./reader.js";
+import { readFile } from "../files.js";
+import { resolveProcedure } from "../data/codes.js";
 
-const STEP_DELAY = Number(process.env.STEP_DELAY_MS ?? 500);
+const STEP_DELAY = Number(process.env.PIPELINE_STEP_DELAY_MS ?? process.env.STEP_DELAY_MS ?? 500);
 const DECISION_DELAY = Number(process.env.PAYER_DECISION_DELAY_MS ?? 3000);
 const running = new Set();
 let fast = false;
@@ -56,7 +59,7 @@ export function createCase({ patientId, order, user }) {
     id: `C-${store.counters.case}`,
     patientId,
     patientName: patient.name,
-    order: { cpt: order.cpt, reason: order.reason, urgency: order.urgency || "routine", payer: order.payer || patient.payer, setting: order.setting || "outpatient" },
+    order: { cpt: order.cpt, procedureName: order.procedureName || null, kind: order.kind || null, reason: order.reason, urgency: order.urgency || "routine", payer: order.payer || patient.payer, setting: order.setting || "outpatient" },
     status: "DRAFT",
     createdAt: now,
     updatedAt: now,
@@ -86,7 +89,7 @@ export function createCase({ patientId, order, user }) {
   };
   store.cases.unshift(caseObj);
   save();
-  audit({ caseId: caseObj.id, actorType: "human", actorId: user?.email || "system", action: "case.created", payload: { patientId, cpt: order.cpt } });
+  audit({ caseId: caseObj.id, actorType: "human", actorId: user?.email || "system", action: "case.created", payload: { patientId, cpt: order.cpt, procedure: resolveProcedure(order).short } });
   return caseObj;
 }
 
@@ -114,6 +117,11 @@ async function graph(caseObj, from) {
   const at = (s) => order.indexOf(s) >= order.indexOf(from);
   let { patient, documents, policy } = context(caseObj);
   emit(caseObj, "system", "info", `Copilot ${from === "intake" ? "started" : `resumed at ${from}`} (${aiModeInfo().mode === "llm" ? `${aiModeInfo().providerLabel}: ${aiModeInfo().model}` : "rule engine"})`);
+
+  // 0. Report Reader: uploaded reports / scans become chart text before intake reads the chart
+  if (at("intake")) {
+    if (await readUploads(caseObj)) ({ patient, documents, policy } = context(caseObj));
+  }
 
   // 1. Intake
   if (at("intake")) {
@@ -169,7 +177,7 @@ async function graph(caseObj, from) {
   if (at("matcher")) {
     emit(caseObj, "matcher", "running", "Matching each criterion to chart evidence…");
     await pause();
-    const { results, mode, error } = await runMatcher(policy, documents, caseObj.decisions);
+    const { results, mode, error } = await runMatcher(policy, documents, caseObj.decisions, matchContext(caseObj, patient));
     caseObj.criteria = results;
     caseObj.modes.matcher = mode;
     const count = (s) => results.filter((r) => r.status === s).length;
@@ -179,7 +187,7 @@ async function graph(caseObj, from) {
 
   // 5. Gap closing (pause point)
   if (at("gaps")) {
-    const pendingDocs = db().documents.filter((d) => d.patientId === caseObj.patientId && !d.available);
+    const pendingDocs = db().documents.filter((d) => d.patientId === caseObj.patientId && !d.available && !d.upload);
     const open = runGapCloser({ policy, results: caseObj.criteria, decisions: caseObj.decisions, existingGaps: caseObj.gaps, pendingDocs });
     const coverageGap = coverageGapFor(caseObj);
     if (coverageGap) open.unshift(coverageGap);
@@ -238,6 +246,61 @@ async function graph(caseObj, from) {
   touch(caseObj);
 }
 
+/** Reads every uploaded file for this patient that has not been processed yet. Returns true if any were read. */
+async function readUploads(caseObj) {
+  const pending = db().documents.filter((d) => d.patientId === caseObj.patientId && d.upload?.status === "pending");
+  if (!pending.length) return false;
+  caseObj.status = "READING_REPORTS";
+  emit(caseObj, "reader", "running", `Reading ${pending.length} uploaded report(s) and scan(s)…`);
+  const procedure = resolveProcedure(caseObj.order).short;
+  const patient = getPatient(caseObj.patientId);
+  let ok = 0;
+  for (const doc of pending) {
+    const name = doc.upload.name;
+    try {
+      const ex = await extractText({ buffer: await readFile(doc.upload.fileId), name, mime: doc.upload.mime });
+      if (!ex.text || ex.text.replace(/s/g, "").length < 20) throw new Error("no readable text found");
+      doc.text = ex.text;
+      if (ex.reportDate && /^d{4}-d{2}-d{2}$/.test(ex.reportDate)) doc.date = ex.reportDate;
+      doc.analysis = await analyseText(ex.text, procedure, patient.name);
+      if (doc.analysis.relevance?.clinical !== false) doc.analysis.documentType = ex.documentType || doc.analysis.documentType;
+      doc.type = "uploaded_report";
+      doc.title = `${doc.analysis.documentType}: ${name}`;
+      doc.upload = { ...doc.upload, method: ex.method, pages: ex.pages || null, confidence: ex.confidence ?? null, legibility: ex.legibility || null, readAt: new Date().toISOString() };
+
+      // Relevance gate: only clinical records of this patient may become evidence.
+      const excluded = exclusionReason(doc.analysis, patient.name);
+      if (excluded) {
+        doc.available = false;
+        doc.upload = { ...doc.upload, status: "excluded", excludedReason: excluded };
+        emit(caseObj, "reader", "warning", `"${name}" was NOT added to the chart. ${excluded} A coordinator can add it anyway from the chart panel.`, { mode: doc.analysis.relevance.method });
+        agentAudit(caseObj, "reader.excluded", { documentId: doc.id, file: name, reason: excluded });
+        continue;
+      }
+      doc.available = true;
+      doc.upload = { ...doc.upload, status: "read" };
+      ok++;
+      const lowQuality = (ex.confidence != null && ex.confidence < 60) || ex.legibility === "low";
+      const offTopic = doc.analysis.relevance?.relevant === false;
+      emit(
+        caseObj,
+        "reader",
+        lowQuality || offTopic ? "warning" : "info",
+        `"${name}": ${doc.analysis.documentType}, ${ex.method}. ${doc.analysis.keyFindings.length} key finding(s).${offTopic ? ` May not be relevant to ${procedure}: ${doc.analysis.relevance.reason}` : ""}${lowQuality ? " Low read quality: please check the transcription against the original." : ""}`,
+        { mode: doc.analysis.method }
+      );
+      agentAudit(caseObj, "reader.extracted", { documentId: doc.id, file: name, method: ex.method, findings: doc.analysis.keyFindings.length });
+    } catch (err) {
+      doc.upload = { ...doc.upload, status: "failed", error: err.message };
+      emit(caseObj, "reader", "warning", `Could not read "${name}": ${err.message}. Paste the text with "Add note" instead.`);
+      agentAudit(caseObj, "reader.failed", { documentId: doc.id, file: name, error: err.message });
+    }
+  }
+  emit(caseObj, "reader", ok ? "done" : "warning", `${ok} of ${pending.length} upload(s) added to the chart.`);
+  touch(caseObj);
+  return ok > 0;
+}
+
 async function runAdversarial(caseObj, policy) {
   const result = await runInsurerSimulator({ policy, results: caseObj.criteria, packet: caseObj.packet });
   caseObj.adversarial = result;
@@ -270,6 +333,11 @@ async function verifyWithRetries(caseObj, { patient, documents, policy }) {
   caseObj.modes.verifier = v.mode;
   emit(caseObj, "verifier", v.status === "FAIL" ? "warning" : "done", v.status === "PASS" ? `PASS: all ${v.checks.length} checks passed.` : v.status === "WARN" ? `PASS with ${v.issues.length} warning(s).` : `FAIL: ${v.issues.filter((i) => i.severity === "high").length} high-severity issue(s). Routed to the human reviewer.`, { mode: v.mode });
   agentAudit(caseObj, "verifier.completed", { status: v.status, issues: v.issues.map((i) => i.type), retries: attempt });
+}
+
+/** Who and what the evidence must support, for the LLM reviewer. */
+function matchContext(caseObj, patient) {
+  return { patientName: patient?.name, procedure: caseObj.coding?.procedure || resolveProcedure(caseObj.order).name, reason: caseObj.order.reason };
 }
 
 function recordPrediction(caseObj, label) {
@@ -320,13 +388,17 @@ export function changeInsurer(caseObj, payer, user) {
 
 // ─────────────────────────── human actions ───────────────────────────
 
-export async function resolveGap(caseObj, gapId, { action, title, text, documentId, note }, user) {
+export async function resolveGap(caseObj, gapId, { action, title, text, documentId, documentIds, note }, user) {
   const gap = caseObj.gaps.find((g) => g.id === gapId);
   if (!gap || gap.status !== "OPEN") throw new Error("Gap not found or already resolved");
   const store = db();
   let resolution;
   if (action === "attach_document") {
-    if (documentId) {
+    if (Array.isArray(documentIds) && documentIds.length) {
+      const docs = store.documents.filter((d) => documentIds.includes(d.id) && d.patientId === caseObj.patientId && d.upload);
+      if (!docs.length) throw new Error("Uploaded documents not found");
+      resolution = `Uploaded ${docs.map((d) => `"${d.upload.name}"`).join(", ")}`;
+    } else if (documentId) {
       const doc = store.documents.find((d) => d.id === documentId && d.patientId === caseObj.patientId);
       if (!doc) throw new Error("Document not found");
       doc.available = true;
@@ -371,6 +443,17 @@ export async function resolveGap(caseObj, gapId, { action, title, text, document
     emit(caseObj, "gap_closer", "done", "All gaps addressed. Re-running the copilot with the new evidence.");
     runInBackground(caseObj, "intake");
   } else touch(caseObj);
+}
+
+/** A coordinator decides an excluded upload is valid evidence after all (e.g. the name is spelled differently). */
+export function includeUpload(caseObj, documentId, user) {
+  const doc = db().documents.find((d) => d.id === documentId && d.patientId === caseObj.patientId && d.upload?.status === "excluded");
+  if (!doc) throw new Error("Excluded upload not found");
+  doc.available = true;
+  doc.upload = { ...doc.upload, status: "read", includedBy: user.name, includedAt: new Date().toISOString() };
+  emit(caseObj, "reader", "info", `${user.name} added "${doc.upload.name}" to the chart despite the warning (${doc.upload.excludedReason}). Re-running the copilot.`);
+  audit({ caseId: caseObj.id, actorType: "human", actorId: user.email, action: "upload.included_after_exclusion", payload: { documentId, reason: doc.upload.excludedReason } });
+  runInBackground(caseObj, "intake");
 }
 
 export function skipGaps(caseObj, user) {
@@ -518,8 +601,8 @@ export async function submitAppeal(caseObj, user, { immediate = false } = {}) {
   touch(caseObj);
 
   const finish = async () => {
-    const { documents, policy } = context(caseObj);
-    const { results } = await runMatcher(policy, documents, caseObj.decisions);
+    const { patient, documents, policy } = context(caseObj);
+    const { results } = await runMatcher(policy, documents, caseObj.decisions, matchContext(caseObj, patient));
     const d = decide({ caseObj, policy, results, isAppeal: true });
     caseObj.appeal.outcome = d.decision === "APPROVED" ? "OVERTURNED" : "UPHELD";
     caseObj.appeal.decidedAt = new Date().toISOString();

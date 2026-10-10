@@ -2,8 +2,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FileCheck2, Gavel, RefreshCw, Radio, User, Stethoscope, Building2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { FileCheck2, Gavel, RefreshCw, Radio, User, Stethoscope, Building2, Paperclip, Loader2 } from "lucide-react";
+import { api, uploadFiles } from "@/lib/api";
+import ReportUploader from "@/components/ReportUploader";
 import { useAuth } from "@/lib/auth";
 import { useCase } from "@/components/useCase";
 import { StatusChip, Loading, ErrorBox, MockBadge } from "@/components/ui";
@@ -22,6 +23,26 @@ export default function Workspace() {
   const { data: c, error, setError, reload, live } = useCase(id);
   const [active, setActive] = useState(null);
   const [switching, setSwitching] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [newFiles, setNewFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+
+  /** Upload more reports to the chart, then re-run the copilot so the Report Reader picks them up. */
+  async function addReports() {
+    setUploading(true);
+    setError("");
+    try {
+      await uploadFiles(c.patientId, newFiles);
+      await api.post(`/cases/${c.id}/rerun`);
+      setNewFiles([]);
+      setAdding(false);
+      await reload();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function changeInsurer(payer) {
     setSwitching(true);
@@ -63,7 +84,10 @@ export default function Workspace() {
               <User size={14} /> {c.patient.name}, {c.patient.age}
               {c.patient.sex} · {c.patient.mrn}
             </span>
-            <span>{c.coding?.procedureShort || c.order.cpt} · CPT {c.order.cpt}</span>
+            <span>
+              {c.coding?.procedureShort || c.order.procedureName || c.order.cpt} · {c.order.cpt === "CUSTOM" ? "custom procedure" : `CPT ${c.order.cpt}`}
+              {c.policy?.general && <span className="ml-1 text-xs text-slate-400">(general medical-necessity policy)</span>}
+            </span>
             <label className="flex items-center gap-1.5" title="Re-check the same chart against another insurer's policy">
               <Building2 size={14} />
               <select
@@ -118,11 +142,34 @@ export default function Workspace() {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <section className="card flex max-h-[calc(100vh-200px)] flex-col">
           <div className="border-b border-slate-100 px-4 py-3">
-            <h2>Patient chart</h2>
-            <p className="text-xs text-slate-500">Highlighted text is cited evidence</p>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2>Patient chart</h2>
+                <p className="text-xs text-slate-500">Highlighted text is cited evidence</p>
+              </div>
+              {["physician", "coordinator"].includes(user.role) && INSURER_CHANGEABLE.includes(c.status) && (
+                <button className="btn-secondary btn-sm" onClick={() => setAdding(!adding)}>
+                  <Paperclip size={13} /> Add reports
+                </button>
+              )}
+            </div>
+            {adding && (
+              <div className="mt-3">
+                <ReportUploader files={newFiles} onChange={setNewFiles} compact />
+                <button className="btn-primary btn-sm mt-2" disabled={!newFiles.length || uploading} onClick={addReports}>
+                  {uploading && <Loader2 size={13} className="animate-spin" />} Upload & re-run copilot
+                </button>
+              </div>
+            )}
           </div>
           <div className="overflow-y-auto p-4">
-            <ChartViewer documents={c.documents} highlights={highlights} active={active} />
+            <ChartViewer
+              documents={c.documents}
+              highlights={highlights}
+              active={active}
+              uploads={c.uploads}
+              onInclude={["physician", "coordinator"].includes(user.role) && INSURER_CHANGEABLE.includes(c.status) ? (docId) => api.post(`/cases/${c.id}/documents/${docId}/include`).then(reload).catch((e) => setError(e.message)) : null}
+            />
           </div>
         </section>
 

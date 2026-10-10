@@ -51,7 +51,7 @@ export function programmaticChecks({ packet, documents, results, coding, patient
   for (const d of coding.icd10) {
     const entry = ICD10.find((x) => x.code === d.code);
     if (!entry) codeProblems.push(`${d.code} is not in the code table.`);
-    else if (!entry.cpts.includes(coding.cpt)) codeProblems.push(`${d.code} does not support CPT ${coding.cpt}.`);
+    else if (coding.family !== "general" && !entry.families.includes(coding.family)) codeProblems.push(`${d.code} does not support ${coding.procedureShort} (CPT ${coding.cpt}).`);
   }
   codeProblems.forEach((m) => issues.push({ type: "CODING", severity: "high", fixable: false, message: m }));
   checks.push({ id: "codes", label: "CPT / ICD-10 codes are consistent with the order", pass: codeProblems.length === 0, detail: `${coding.cpt} + ${coding.icd10.map((d) => d.code).join(", ") || "none"}` });

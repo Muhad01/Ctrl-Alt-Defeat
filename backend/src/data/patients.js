@@ -8,6 +8,10 @@ const KHAN = { name: "Imran Khan, MD", specialty: "Orthopedics", npi: "145738291
 const ORTIZ = { name: "Daniel Ortiz, MD", specialty: "Spine Surgery", npi: "1639204857" };
 const MITCHELL = { name: "Sarah Mitchell, MD", specialty: "Family Medicine", npi: "1982736450" };
 
+const AZIZ = { name: "Farhan Aziz, MD", specialty: "Cardiology", npi: "1720394856" };
+const SIDDIQUI = { name: "Ayesha Siddiqui, MD", specialty: "Cardiothoracic Surgery", npi: "1386029475" };
+const RAUF = { name: "Nida Rauf, MD", specialty: "Bariatric Surgery", npi: "1593847201" };
+
 export const PATIENTS = [
   {
     id: "P001", mrn: "MRN-100231", name: "Maria Lopez", dob: "1972-03-14", sex: "F", age: 54,
@@ -106,6 +110,31 @@ export const PATIENTS = [
     payer: "BlueRiver Health", planId: "BRH-PPO-GOLD", memberId: "BRH-905126", provider: ORTIZ,
     defaultOrder: { cpt: "72148", side: null, reason: "Mechanical backache" },
     scenario: "Edge: every criterion documented, but the diagnosis wording maps to no ICD-10 code; the verifier must flag the coding problem",
+  },
+  // ───────── Beyond imaging: cardiac, joint replacement and bariatric surgery ─────────
+  {
+    id: "P017", mrn: "MRN-102117", name: "Tariq Mehmood", dob: "1968-04-11", sex: "M", age: 58,
+    payer: "BlueRiver Health", planId: "BRH-PPO-GOLD", memberId: "BRH-603318", provider: SIDDIQUI,
+    defaultOrder: { cpt: "33533", side: null, reason: "Three-vessel coronary artery disease with left main stenosis" },
+    scenario: "Heart surgery (CABG): complete work-up, all criteria documented",
+  },
+  {
+    id: "P018", mrn: "MRN-102245", name: "Rubina Akhtar", dob: "1974-02-19", sex: "F", age: 52,
+    payer: "Northstar Insurance", planId: "NSI-HMO-SILVER", memberId: "NSI-318840", provider: AZIZ,
+    defaultOrder: { cpt: "92928", side: null, reason: "Exertional chest pain, suspected coronary artery disease" },
+    scenario: "Angioplasty (PCI): no stress test in the chart (report arrives as an outside record), only 3 weeks of medication",
+  },
+  {
+    id: "P019", mrn: "MRN-102388", name: "Saima Khan", dob: "1960-08-27", sex: "F", age: 66,
+    payer: "Medicare", planId: "MEDICARE-B", memberId: "7HK2-PL4-RT19", provider: KHAN,
+    defaultOrder: { cpt: "27447", side: "right", reason: "Severe primary osteoarthritis of the right knee" },
+    scenario: "Knee replacement: 8 weeks of physio fails Medicare (12) but passes Indus Health (6)",
+  },
+  {
+    id: "P020", mrn: "MRN-102461", name: "Imran Butt", dob: "1985-06-03", sex: "M", age: 41,
+    payer: "Indus Health", planId: "IHL-CORP-PLUS", memberId: "IHL-772015", provider: RAUF,
+    defaultOrder: { cpt: "43644", side: null, reason: "Severe obesity with type 2 diabetes and sleep apnea" },
+    scenario: "Gastric bypass: BMI 38.5 passes Indus Health (37.5) but fails BlueRiver (40); Jubilee excludes obesity surgery",
   },
 ];
 
@@ -451,5 +480,112 @@ Imaging: Lumbar spine X-ray on 08/30/2026 shows mild degenerative disc disease a
 Assessment: Right lumbar radiculopathy with sciatica radiating to the right leg, suspected L5-S1 disc herniation.
 
 Plan: MRI of the lumbar spine without contrast.`,
+  },
+  // ───────── P017 Tariq Mehmood (CABG) ─────────
+  {
+    id: "D017-1", patientId: "P017", type: "progress_note", title: "Cardiology Consultation", date: "2026-09-15", available: true,
+    text: `CARDIOLOGY CONSULTATION
+Patient: Tariq Mehmood   DOB: 04/11/1968   Date of visit: 09/15/2026
+Provider: Farhan Aziz, MD (Cardiology)
+
+Chief complaint: Exertional chest pain for 5 months.
+
+History of present illness: 58-year-old male with type 2 diabetes and hypertension who reports chest tightness on walking 200 meters, relieved by rest (CCS class III angina). Angina persists despite aspirin 75 mg, atorvastatin 80 mg, metoprolol 50 mg twice daily and isosorbide mononitrate 30 mg daily for 4 months.
+
+Investigations: Resting ECG shows sinus rhythm with Q waves in the inferior leads. Exercise stress test on 08/20/2026 was strongly positive for ischemia at 4 METs. Echocardiogram shows a left ventricular ejection fraction of 45% with inferior hypokinesia.
+
+Assessment: Stable angina with coronary artery disease.
+
+Plan: Coronary angiography.`,
+  },
+  {
+    id: "D017-2", patientId: "P017", type: "procedure_report", title: "Cardiac Catheterization Report", date: "2026-09-22", available: true,
+    text: `CARDIAC CATHETERIZATION REPORT
+Patient: Tariq Mehmood   Date of procedure: 09/22/2026
+Operator: Farhan Aziz, MD (Cardiology)
+
+Procedure: Left heart catheterization and selective coronary angiography via the right radial artery.
+
+Findings: The left main coronary artery has a 60% stenosis. The proximal LAD has a 90% stenosis. The right coronary artery has an 80% stenosis in the mid segment. The circumflex has mild irregularities.
+
+Impression: Three-vessel coronary artery disease with significant left main stenosis. Referred for surgical revascularization.`,
+  },
+  {
+    id: "D017-3", patientId: "P017", type: "consult_note", title: "Cardiothoracic Surgery Consultation", date: "2026-09-25", available: true,
+    text: `CARDIOTHORACIC SURGERY CONSULTATION
+Patient: Tariq Mehmood   Date: 09/25/2026
+Provider: Ayesha Siddiqui, MD (Cardiothoracic Surgery)
+
+The case was discussed at the heart team meeting on 09/25/2026 with cardiology and cardiac anesthesia. STS predicted risk of mortality is 1.4%. Creatinine is 1.0 mg/dL and hemoglobin is 13.8 g/dL.
+
+Assessment: Left main and three-vessel coronary artery disease with mildly reduced ejection fraction. The patient is a suitable candidate for CABG.
+
+Plan: Elective coronary artery bypass grafting with left internal mammary artery to LAD.`,
+  },
+
+  // ───────── P018 Rubina Akhtar (PCI) ─────────
+  {
+    id: "D018-1", patientId: "P018", type: "progress_note", title: "Cardiology Clinic Note", date: "2026-09-26", available: true,
+    text: `CARDIOLOGY CLINIC NOTE
+Patient: Rubina Akhtar   DOB: 02/19/1974   Date of visit: 09/26/2026
+Provider: Farhan Aziz, MD (Cardiology)
+
+Chief complaint: Chest pain on exertion for 6 weeks.
+
+History of present illness: 52-year-old female with hypertension who reports central chest pain when climbing stairs, lasting about 5 minutes and easing with rest. She was started on aspirin 75 mg and bisoprolol 5 mg three weeks ago with persistent symptoms.
+
+Investigations: Resting ECG shows normal sinus rhythm with nonspecific T wave changes. Creatinine is 0.9 mg/dL.
+
+Assessment: Chest pain, suspected coronary artery disease.
+
+Plan: Request coronary angiography with angioplasty and stenting if a significant lesion is found.`,
+  },
+  {
+    id: "D018-2", patientId: "P018", type: "test_report", title: "Exercise Stress Test Report (outside cardiology lab)", date: "2026-09-30", available: false,
+    text: `EXERCISE STRESS TEST REPORT
+Patient: Rubina Akhtar   Date: 09/30/2026
+Facility: City Heart Diagnostics
+
+Treadmill exercise stress test (Bruce protocol): the patient exercised for 5 minutes 40 seconds and stopped because of typical chest pain. There was 2 mm horizontal ST depression in leads V4 to V6 at 6 METs.
+
+Impression: Positive stress test for inducible myocardial ischemia.`,
+  },
+
+  // ───────── P019 Saima Khan (total knee replacement) ─────────
+  {
+    id: "D019-1", patientId: "P019", type: "progress_note", title: "Orthopedic Surgery Note", date: "2026-09-18", available: true,
+    text: `ORTHOPEDIC SURGERY NOTE
+Patient: Saima Khan   DOB: 08/27/1960   Date of visit: 09/18/2026
+Provider: Imran Khan, MD (Orthopedics)
+
+Chief complaint: Right knee pain for 3 years, worse over the last year.
+
+History of present illness: 66-year-old female with right knee pain that limits walking to 100 meters and makes stairs difficult. She uses a cane. She completed 8 weeks of physiotherapy with no improvement. She took naproxen 500 mg twice daily with minimal relief. An intra-articular steroid injection in June 2026 gave only short-term benefit.
+
+Physical exam: Varus deformity of the right knee with crepitus. Range of motion 5 to 95 degrees. BMI 31.2.
+
+Imaging: Weight-bearing X-ray of the right knee shows bone-on-bone medial joint space with osteophytes (Kellgren-Lawrence grade 4).
+
+Assessment: Severe primary osteoarthritis of the right knee.
+
+Plan: Right total knee replacement. Medical clearance obtained from her internist on 09/16/2026.`,
+  },
+
+  // ───────── P020 Imran Butt (gastric bypass) ─────────
+  {
+    id: "D020-1", patientId: "P020", type: "consult_note", title: "Bariatric Surgery Consultation", date: "2026-09-20", available: true,
+    text: `BARIATRIC SURGERY CONSULTATION
+Patient: Imran Butt   DOB: 06/03/1985   Date of visit: 09/20/2026
+Provider: Nida Rauf, MD (Bariatric Surgery)
+
+Chief complaint: Severe obesity for more than 10 years.
+
+History of present illness: 41-year-old male with severe obesity, type 2 diabetes on metformin, and obstructive sleep apnea using CPAP at night. Weight 118 kg, height 175 cm, BMI 38.5. He completed a 6-month supervised weight-loss program with a dietitian from January to June 2026 and lost 4 kg but regained it, with no significant improvement.
+
+Psychological evaluation on 09/10/2026 found no contraindication to surgery.
+
+Assessment: Severe obesity with type 2 diabetes and sleep apnea.
+
+Plan: Laparoscopic Roux-en-Y gastric bypass.`,
   },
 ];

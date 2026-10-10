@@ -5,6 +5,7 @@ import { ModeTag } from "./ui";
 
 const STEP_LABEL = {
   system: "Copilot",
+  reader: "Report Reader",
   intake: "Intake Agent",
   coding: "Coding Agent",
   coverage: "Coverage Check",

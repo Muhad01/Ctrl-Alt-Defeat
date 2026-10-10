@@ -1,5 +1,6 @@
 export const STATUS_META = {
   DRAFT: { label: "Draft", cls: "bg-slate-100 text-slate-700" },
+  READING_REPORTS: { label: "Reading reports", cls: "bg-sky-100 text-sky-800" },
   INTAKE: { label: "Intake", cls: "bg-sky-100 text-sky-800" },
   CRITERIA_CHECK: { label: "Checking criteria", cls: "bg-sky-100 text-sky-800" },
   NEEDS_INFO: { label: "Needs info", cls: "bg-amber-100 text-amber-800" },

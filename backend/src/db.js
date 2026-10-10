@@ -31,6 +31,11 @@ let auditPersisted = 0;
 let sessionsSaved = new Set();
 let metaSaved = "";
 
+/** The MongoDB database handle, or null when running on the JSON file. */
+export function mongoDb() {
+  return mongo?.db || null;
+}
+
 export function storageInfo() {
   return mongo ? { type: "mongodb", database: mongo.dbName, host: mongo.host } : { type: "json", file: "backend/data/db.json" };
 }

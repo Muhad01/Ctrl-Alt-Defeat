@@ -1,10 +1,12 @@
 "use client";
 import { useState } from "react";
 import { AlertTriangle, Paperclip, StickyNote, Ban, MinusCircle, Loader2, CheckCircle2, FileSearch } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, uploadFiles } from "@/lib/api";
+import ReportUploader from "./ReportUploader";
 
-function GapCard({ caseId, gap, pendingDocuments, canAct, onDone }) {
+function GapCard({ caseId, patientId, gap, pendingDocuments, canAct, onDone }) {
   const [mode, setMode] = useState(null);
+  const [files, setFiles] = useState([]);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -15,6 +17,19 @@ function GapCard({ caseId, gap, pendingDocuments, canAct, onDone }) {
     setError("");
     try {
       await api.post(`/cases/${caseId}/gaps/${gap.id}/resolve`, { action, ...body });
+      onDone?.();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  async function submitFiles() {
+    setBusy(true);
+    setError("");
+    try {
+      const docs = await uploadFiles(patientId, files);
+      await api.post(`/cases/${caseId}/gaps/${gap.id}/resolve`, { action: "attach_document", documentIds: docs.map((d) => d.id) });
       onDone?.();
     } catch (e) {
       setError(e.message);
@@ -93,6 +108,13 @@ function GapCard({ caseId, gap, pendingDocuments, canAct, onDone }) {
             <div className="mt-3 space-y-2">
               {mode === "doc" && (
                 <>
+                  <ReportUploader files={files} onChange={setFiles} compact />
+                  {files.length > 0 && (
+                    <button className="btn-primary btn-sm" disabled={busy} onClick={submitFiles}>
+                      {busy && <Loader2 size={13} className="animate-spin" />} Upload {files.length} file(s) & re-run copilot
+                    </button>
+                  )}
+                  <p className="text-xs text-slate-500">Or paste the text of the record:</p>
                   <input className="input" placeholder="Document title (e.g., PT discharge summary)" value={title} onChange={(e) => setTitle(e.target.value)} />
                   <input type="file" accept=".txt,.md,text/plain" onChange={onFile} className="block w-full text-xs text-slate-500" />
                 </>
@@ -125,7 +147,7 @@ export default function GapPanel({ caseData, user, onChange }) {
   return (
     <div className="space-y-3">
       {open.map((g) => (
-        <GapCard key={g.id} caseId={caseData.id} gap={g} pendingDocuments={caseData.pendingDocuments} canAct={canAct} onDone={onChange} />
+        <GapCard key={g.id} caseId={caseData.id} patientId={caseData.patientId} gap={g} pendingDocuments={caseData.pendingDocuments} canAct={canAct} onDone={onChange} />
       ))}
       {open.length > 0 && user?.role === "coordinator" && (
         <button

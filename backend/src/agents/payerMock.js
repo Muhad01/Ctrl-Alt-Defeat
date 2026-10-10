@@ -39,7 +39,7 @@ export function decide({ caseObj, policy, results, isAppeal = false }) {
       decision: "DENIED",
       reference,
       reasonClass: "NOT_MEDICALLY_NECESSARY",
-      reasonText: "Not medically necessary: the reviewer determined that advanced imaging would not change management at this time.",
+      reasonText: "Not medically necessary: the reviewer determined that the requested service would not change management at this time.",
       unmetCriteria: [],
     };
   }

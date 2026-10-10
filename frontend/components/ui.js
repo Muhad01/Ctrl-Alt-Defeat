@@ -63,8 +63,8 @@ export function Kpi({ label, value, hint, icon: Icon }) {
 
 export function ModeTag({ mode }) {
   if (!mode) return null;
-  const map = { claude: "bg-violet-100 text-violet-700", mistral: "bg-orange-100 text-orange-700", rules: "bg-slate-100 text-slate-600", rag: "bg-sky-100 text-sky-700", ml: "bg-teal-100 text-teal-700" };
-  const label = { claude: "Claude", mistral: "Mistral", rules: "rules", rag: "RAG", ml: "ML" }[mode] || mode;
+  const map = { claude: "bg-violet-100 text-violet-700", mistral: "bg-orange-100 text-orange-700", groq: "bg-rose-100 text-rose-700", ollama: "bg-emerald-100 text-emerald-700", rules: "bg-slate-100 text-slate-600", rag: "bg-sky-100 text-sky-700", ml: "bg-teal-100 text-teal-700" };
+  const label = { claude: "Claude", mistral: "Mistral", groq: "Groq", ollama: "Ollama", rules: "rules", rag: "RAG", ml: "ML" }[mode] || mode;
   return <span className={`chip ${map[mode] || "bg-slate-100 text-slate-600"} px-1.5 py-0 text-[10px] uppercase`}>{label}</span>;
 }
 

@@ -1,10 +1,13 @@
 // Coverage Check agent: before checking clinical criteria, is this service a covered benefit under
 // the patient's actual plan? It uses the insurer's published terms (data/insurers.js): benefit
-// scope (outpatient MRI), age limits, inadmissible conditions, waiting period, pre-authorization
+// scope (outpatient test, day-care or inpatient surgery), plan exclusions, age limits, inadmissible conditions, waiting period, pre-authorization
 // timing and network rules. Every finding cites the insurer document it came from.
 import { insurerByPayer } from "../data/insurers.js";
 
 const CANCER = /(cancer|malignan|carcinoma|lymphoma|tumou?r)/i;
+const BENEFIT_LABEL = { outpatient_imaging: "Outpatient diagnostic test", inpatient: "Inpatient hospitalization / surgery", day_care: "Day-care procedure" };
+// Plan exclusion wording that applies to a procedure family.
+const EXCLUSION_HINTS = { bariatric: /(obesity|weight)/i };
 const HIV = /\b(hiv|aids)\b/i;
 
 export function runCoverageCheck({ payer, patient, coding, order, documents }) {
@@ -14,15 +17,17 @@ export function runCoverageCheck({ payer, patient, coding, order, documents }) {
   const findings = [];
   const add = (rule, result, detail, quote = null) => findings.push({ rule, result, detail, quote, source: src.title, url: src.url });
 
-  // 1. Benefit scope: diagnostic MRI ordered as an outpatient test
-  const mri = insurer.services.outpatient_imaging;
+  // 1. Benefit scope: which plan benefit the service falls under (outpatient test, day-care, inpatient surgery)
   const setting = order.setting || "outpatient";
-  if (setting === "inpatient") {
-    add("Benefit scope", "PASS", `Requested during an inpatient admission: ${insurer.services.inpatient.text}`);
-  } else {
-    const result = mri.status === "COVERED" ? "PASS" : mri.status === "CONDITIONAL" ? "CONDITION" : "FAIL";
-    add(`Outpatient MRI (${mri.ref})`, result, mri.text + (mri.condition ? ` Condition: ${mri.condition}` : "") + (mri.override ? ` Possible override: ${mri.override}` : ""), mri.quote);
-  }
+  const benefitKey = setting === "inpatient" ? "inpatient" : coding.benefit || "outpatient_imaging";
+  const benefit = insurer.services[benefitKey] || insurer.services.inpatient;
+  const result = benefit.status === "COVERED" ? "PASS" : benefit.status === "CONDITIONAL" ? "CONDITION" : benefit.status === "NOT_COVERED" ? "FAIL" : "CONDITION"; // unstated or optional: staff must confirm
+  const label = coding.family === "knee" || coding.family === "lumbar" ? "Outpatient MRI" : BENEFIT_LABEL[benefitKey];
+  add(`${label}${benefit.ref ? ` (${benefit.ref})` : ""}`, result, (!["COVERED", "CONDITIONAL", "NOT_COVERED"].includes(benefit.status) ? `${benefit.text} Confirm with the insurer whether this is covered.` : benefit.text) + (benefit.condition ? ` Condition: ${benefit.condition}` : "") + (benefit.override ? ` Possible override: ${benefit.override}` : ""), benefit.quote);
+
+  // 1b. Plan exclusions that match this kind of service (e.g. obesity surgery, cosmetic surgery)
+  const excl = EXCLUSION_HINTS[coding.family] && insurer.exclusions.find((e) => EXCLUSION_HINTS[coding.family].test(e));
+  if (excl) add("Plan exclusion", "FAIL", `The plan excludes: "${excl}".`);
 
   // 2. Age eligibility
   const maxAge = insurer.eligibility.maxClaimAge;
@@ -60,7 +65,7 @@ export function runCoverageCheck({ payer, patient, coding, order, documents }) {
           ? `${coding.procedureShort} is covered only under conditions in ${insurer.plan}.`
           : `${coding.procedureShort} is not a covered benefit under ${insurer.plan}: ${blocker.rule}.`,
     blocker: blocker ? { rule: blocker.rule, detail: blocker.detail, quote: blocker.quote } : null,
-    override: mri.override || null,
+    override: benefit.override || null,
     findings,
     sources: insurer.sources,
     checkedAt: new Date().toISOString(),
