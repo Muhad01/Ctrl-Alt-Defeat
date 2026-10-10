@@ -24,3 +24,4 @@ COPY --from=build --chown=app:app /app/.next/standalone ./
 USER app
 EXPOSE 3000
 CMD ["node", "server.js"]
+# CTRL+ALT+DEFEAT
