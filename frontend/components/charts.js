@@ -3,16 +3,16 @@
 // for two-series charts, thin rounded bars, recessive grid, hover tooltips.
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line, Legend } from "recharts";
 
-export const SERIES = ["#2a78d6", "#eb6834"];
-const axis = { stroke: "#cbd5e1", tick: { fill: "#64748b", fontSize: 11 }, tickLine: false };
-const tooltipStyle = { contentStyle: { borderRadius: 8, borderColor: "#e2e8f0", fontSize: 12 }, cursor: { fill: "rgba(148,163,184,0.12)" } };
+export const SERIES = ["#2465ed", "#eb6834"];
+const axis = { stroke: "#e5e7eb", tick: { fill: "#6b7280", fontSize: 11 }, tickLine: false };
+const tooltipStyle = { contentStyle: { borderRadius: 10, borderColor: "#e5e7eb", fontSize: 12, boxShadow: "0 12px 32px -12px rgba(36,101,237,0.18)" }, cursor: { fill: "rgba(36,101,237,0.06)" } };
 
 export function SimpleBar({ data, x, y, height = 220, layout = "horizontal", valueFormatter, name }) {
   const vertical = layout === "vertical";
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} layout={vertical ? "vertical" : "horizontal"} margin={{ top: 8, right: 16, bottom: 0, left: vertical ? 8 : -12 }}>
-        <CartesianGrid stroke="#eef2f7" horizontal={!vertical} vertical={vertical} />
+        <CartesianGrid stroke="#f1f2f4" horizontal={!vertical} vertical={vertical} />
         {vertical ? (
           <>
             <XAxis type="number" {...axis} tickFormatter={valueFormatter} allowDecimals={false} />
@@ -35,7 +35,7 @@ export function SimpleLine({ data, x, lines, height = 240, valueFormatter, domai
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: -12 }}>
-        <CartesianGrid stroke="#eef2f7" vertical={false} />
+        <CartesianGrid stroke="#f1f2f4" vertical={false} />
         <XAxis dataKey={x} {...axis} />
         <YAxis {...axis} tickFormatter={valueFormatter} domain={domain} />
         <Tooltip contentStyle={tooltipStyle.contentStyle} formatter={(v, n) => [v == null ? "–" : valueFormatter ? valueFormatter(v) : v, n]} />

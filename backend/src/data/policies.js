@@ -1,4 +1,4 @@
-// Mock payer coverage policies (simplified, written for this demo — not real payer documents).
+// Mock payer coverage policies (simplified, written for this demo: not real payer documents).
 // Each criterion carries:
 //   spec        machine-checkable evidence rule used by the rule-based matcher
 //   gapQuestion question the Gap-Closer asks when the criterion is missing
@@ -359,15 +359,15 @@ function templatePolicy(family, { id, payer, name, params }) {
 export const POLICY_FAMILIES = ["knee", "lumbar", ...Object.keys(TEMPLATES)];
 
 export const POLICIES = [
-  kneePolicy({ id: "MCR-KNEE-MRI", payer: "Medicare", name: "Medicare (demo LCD) — MRI of the Knee", ptWeeks: 6, nsaidRequired: false, xrayDays: 90, version: "v2.1" }),
-  kneePolicy({ id: "BRH-KNEE-MRI", payer: "BlueRiver Health", name: "BlueRiver Health — Advanced Imaging: Knee MRI", ptWeeks: 6, nsaidRequired: true, xrayDays: 60, version: "v3.0" }),
-  kneePolicy({ id: "NSI-KNEE-MRI", payer: "Northstar Insurance", name: "Northstar Insurance — Knee MRI Medical Policy", ptWeeks: 8, nsaidRequired: true, xrayDays: 60, version: "v1.4" }),
-  lumbarPolicy({ id: "MCR-LSPINE-MRI", payer: "Medicare", name: "Medicare (demo LCD) — MRI of the Lumbar Spine", ptWeeks: 6, nsaidRequired: false, xrayRequired: false, version: "v2.0" }),
-  lumbarPolicy({ id: "BRH-LSPINE-MRI", payer: "BlueRiver Health", name: "BlueRiver Health — Advanced Imaging: Lumbar Spine MRI", ptWeeks: 6, nsaidRequired: true, xrayRequired: true, version: "v3.2" }),
-  lumbarPolicy({ id: "NSI-LSPINE-MRI", payer: "Northstar Insurance", name: "Northstar Insurance — Lumbar Spine MRI Medical Policy", ptWeeks: 6, nsaidRequired: true, xrayRequired: false, version: "v1.1" }),
+  kneePolicy({ id: "MCR-KNEE-MRI", payer: "Medicare", name: "Medicare (demo LCD): MRI of the Knee", ptWeeks: 6, nsaidRequired: false, xrayDays: 90, version: "v2.1" }),
+  kneePolicy({ id: "BRH-KNEE-MRI", payer: "BlueRiver Health", name: "BlueRiver Health: Advanced Imaging: Knee MRI", ptWeeks: 6, nsaidRequired: true, xrayDays: 60, version: "v3.0" }),
+  kneePolicy({ id: "NSI-KNEE-MRI", payer: "Northstar Insurance", name: "Northstar Insurance: Knee MRI Medical Policy", ptWeeks: 8, nsaidRequired: true, xrayDays: 60, version: "v1.4" }),
+  lumbarPolicy({ id: "MCR-LSPINE-MRI", payer: "Medicare", name: "Medicare (demo LCD): MRI of the Lumbar Spine", ptWeeks: 6, nsaidRequired: false, xrayRequired: false, version: "v2.0" }),
+  lumbarPolicy({ id: "BRH-LSPINE-MRI", payer: "BlueRiver Health", name: "BlueRiver Health: Advanced Imaging: Lumbar Spine MRI", ptWeeks: 6, nsaidRequired: true, xrayRequired: true, version: "v3.2" }),
+  lumbarPolicy({ id: "NSI-LSPINE-MRI", payer: "Northstar Insurance", name: "Northstar Insurance: Lumbar Spine MRI Medical Policy", ptWeeks: 6, nsaidRequired: true, xrayRequired: false, version: "v1.1" }),
   // Fictional Pakistani panel-hospital insurer (mock), modelled on corporate health-plan pre-approval rules.
-  kneePolicy({ id: "IHL-KNEE-MRI", payer: "Indus Health", name: "Indus Health (Pakistan, mock) — Panel Hospital Pre-Approval: Knee MRI", ptWeeks: 4, nsaidRequired: true, xrayDays: 90, version: "v1.0" }),
-  lumbarPolicy({ id: "IHL-LSPINE-MRI", payer: "Indus Health", name: "Indus Health (Pakistan, mock) — Panel Hospital Pre-Approval: Lumbar Spine MRI", ptWeeks: 4, nsaidRequired: true, xrayRequired: false, version: "v1.0" }),
+  kneePolicy({ id: "IHL-KNEE-MRI", payer: "Indus Health", name: "Indus Health (Pakistan, mock): Panel Hospital Pre-Approval: Knee MRI", ptWeeks: 4, nsaidRequired: true, xrayDays: 90, version: "v1.0" }),
+  lumbarPolicy({ id: "IHL-LSPINE-MRI", payer: "Indus Health", name: "Indus Health (Pakistan, mock): Panel Hospital Pre-Approval: Lumbar Spine MRI", ptWeeks: 4, nsaidRequired: true, xrayRequired: false, version: "v1.0" }),
 ];
 
 // Mock payers: used for synthetic outcome history, analytics and the evaluation set.

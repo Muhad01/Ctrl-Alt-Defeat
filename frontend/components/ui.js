@@ -25,38 +25,63 @@ export function MockBadge({ children = "MOCK POLICY" }) {
 
 export function PageHeader({ title, subtitle, actions }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1>{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
+        <h1 className="text-3xl">{title}</h1>
+        {subtitle && <p className="mt-1.5 text-sm text-gray-500">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </div>
   );
 }
 
+/** Skeleton placeholder shaped like a page header and a row of cards. */
 export function Loading({ label = "Loading…" }) {
   return (
-    <div className="flex items-center gap-2 py-16 text-sm text-slate-500 justify-center">
-      <Loader2 size={16} className="animate-spin" /> {label}
+    <div className="animate-pulse" role="status" aria-label={label}>
+      <div className="h-8 w-56 rounded-lg bg-gray-200/70" />
+      <div className="mt-2 h-4 w-80 max-w-full rounded bg-gray-200/50" />
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-28 rounded-xl border border-gray-200/60 bg-white" />
+        ))}
+      </div>
+      <div className="mt-6 h-64 rounded-xl border border-gray-200/60 bg-white" />
+      <span className="sr-only">{label}</span>
     </div>
+  );
+}
+
+export function Spinner({ label }) {
+  return (
+    <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+      <Loader2 size={16} className="animate-spin" /> {label}
+    </span>
   );
 }
 
 export function ErrorBox({ error }) {
   if (!error) return null;
-  return <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>;
+  return (
+    <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+      {error}
+    </div>
+  );
 }
 
-export function Kpi({ label, value, hint, icon: Icon }) {
+export function Kpi({ label, value, hint, icon: Icon, accent = false }) {
   return (
-    <div className="card card-pad">
-      <div className="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-slate-500">
-        {label}
-        {Icon && <Icon size={16} className="text-slate-400" />}
+    <div className={`card card-pad group transition hover:shadow-lift ${accent ? "border-brand-100 bg-gradient-to-br from-brand-50/80 to-white" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="text-sm text-gray-500">{label}</span>
+        {Icon && (
+          <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${accent ? "bg-brand-600 text-white shadow-glow" : "bg-gray-50 text-ink ring-1 ring-gray-200"}`}>
+            <Icon size={16} />
+          </span>
+        )}
       </div>
-      <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
-      {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
+      <div className="mt-3 text-3xl font-medium tracking-tight text-ink">{value}</div>
+      {hint && <div className="mt-1.5 text-xs leading-relaxed text-gray-500">{hint}</div>}
     </div>
   );
 }

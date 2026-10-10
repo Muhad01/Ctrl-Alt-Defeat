@@ -2,33 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Shape system (one rule, used everywhere):
+    buttons, inputs, chips inside forms  → rounded-lg (8px)
+    cards and panels                     → rounded-xl (12px)
+    large showcase surfaces              → rounded-2xl (16px)
+    status chips / pills                 → rounded-full
+*/
+
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
   body {
-    @apply bg-slate-50 text-slate-800 antialiased;
+    @apply bg-gray-50 text-gray-800 antialiased;
   }
   h1 {
-    @apply text-2xl font-semibold tracking-tight text-slate-900;
+    @apply text-2xl font-medium tracking-tight text-ink;
+    letter-spacing: -0.02em;
   }
   h2 {
-    @apply text-base font-semibold text-slate-900;
+    @apply text-base font-medium tracking-tight text-ink;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500/40 ring-offset-2 ring-offset-white;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+    @apply rounded-xl border border-gray-200/80 bg-white shadow-soft;
   }
   .card-pad {
     @apply p-5;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition duration-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+    @apply btn bg-ink text-white hover:bg-ink-soft;
+  }
+  .btn-accent {
+    @apply btn bg-brand-600 text-white shadow-glow hover:bg-brand-700;
   }
   .btn-secondary {
-    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+    @apply btn border border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50;
+  }
+  .btn-ghost {
+    @apply btn text-gray-600 hover:bg-gray-100 hover:text-ink;
   }
   .btn-danger {
     @apply btn border border-red-200 bg-white text-red-700 hover:bg-red-50;
@@ -40,10 +73,10 @@
     @apply px-2.5 py-1.5 text-xs;
   }
   .input {
-    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+    @apply w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-gray-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-100;
   }
   .label {
-    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500;
+    @apply mb-1.5 block text-xs font-medium text-gray-600;
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
@@ -52,15 +85,40 @@
     @apply w-full text-left text-sm;
   }
   .table-base th {
-    @apply border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500;
+    @apply border-b border-gray-200 bg-gray-50/80 px-4 py-2.5 text-xs font-medium text-gray-500;
   }
   .table-base td {
-    @apply border-b border-slate-100 px-4 py-3;
+    @apply border-b border-gray-100 px-4 py-3;
   }
   .mark-evidence {
-    @apply rounded bg-amber-100 px-0.5 text-slate-900 ring-1 ring-amber-300;
+    @apply rounded bg-amber-100 px-0.5 text-gray-900 ring-1 ring-amber-300;
   }
   .mark-active {
     @apply bg-amber-300 ring-2 ring-amber-500;
+  }
+
+  /* Template signatures */
+  .frost-glass {
+    @apply border border-white/60 bg-white/80 shadow-glow backdrop-blur-md;
+  }
+  .dot-grid {
+    background-image: radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.07) 1px, transparent 0);
+    background-size: 20px 20px;
+  }
+  .line-grid {
+    background-image: linear-gradient(to right, rgba(15, 23, 42, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+  .fade-mask-b {
+    mask-image: linear-gradient(to bottom, black 60%, transparent);
+  }
+  .fade-mask-x {
+    mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+  }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .frost-glass {
+    @apply bg-white;
   }
 }

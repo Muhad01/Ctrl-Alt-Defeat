@@ -1,0 +1,361 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222.2 47.4% 11.2%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 47.4% 11.2%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+    --primary: 0 0% 0%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 215 20.2% 65.1%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 0 0% 0%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Remove focus rings from all input elements sitewide */
+  input:focus,
+  textarea:focus,
+  select:focus,
+  button:focus,
+  a:focus,
+  [tabindex]:focus,
+  [role="button"]:focus,
+  [role="link"]:focus,
+  .focus\:outline-none:focus {
+    outline: none !important;
+    box-shadow: none !important;
+    ring: 0 !important;
+    ring-offset: 0 !important;
+    border-color: inherit !important;
+  }
+
+  /* Remove all 2px focus outline borders globally */
+  *:focus,
+  *:focus-visible {
+    outline: none !important;
+    outline-width: 0 !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Ensure no focus rings on any interactive elements */
+  button:focus,
+  input:focus,
+  textarea:focus,
+  select:focus,
+  a:focus,
+  [tabindex]:focus {
+    outline: 2px solid transparent !important;
+    outline-offset: 2px !important;
+    box-shadow: none !important;
+  }
+
+  /* Remove focus borders from mobile menu elements */
+  .mobile-menu-button:focus,
+  .mobile-menu-button:focus-visible {
+    outline: none !important;
+    outline-width: 0 !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .mobile-menu-link:focus,
+  .mobile-menu-link:focus-visible {
+    outline: none !important;
+    outline-width: 0 !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Heading Typography Styles */
+  h1,
+  h2 {
+    @apply font-sans text-black font-medium tracking-tight;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  /* Desktop heading sizes */
+  h1 {
+    @apply text-3xl md:text-5xl;
+  }
+
+  h2 {
+    @apply text-2xl md:text-4xl;
+  }
+
+  h3 {
+    @apply text-xl md:text-3xl;
+  }
+
+  h4 {
+    @apply text-lg md:text-2xl;
+  }
+
+  /* Mobile-specific heading adjustments */
+  @media (max-width: 640px) {
+    /* Add padding to content containers while keeping background full-width */
+    main,
+    section,
+    .container,
+    header,
+    footer {
+      padding-left: 5%;
+      padding-right: 5%;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    p,
+    span,
+    div,
+    button,
+    a {
+      @apply text-left;
+    }
+
+    h1 {
+      @apply text-2xl leading-tight;
+    }
+
+    h2 {
+      @apply text-xl leading-tight;
+    }
+
+    h3 {
+      @apply text-lg leading-tight;
+    }
+
+    h4 {
+      @apply text-base leading-tight;
+    }
+
+    /* Adjust paragraph text for better mobile readability */
+    p {
+      @apply text-sm leading-relaxed;
+    }
+
+    /* Adjust section spacing for mobile */
+    section {
+      @apply py-8;
+    }
+
+    /* Ensure proper text alignment on mobile */
+    .mobile-text-left {
+      @apply text-left;
+    }
+  }
+}
+
+/* Light mode grid background */
+.grid-background {
+  background-image: linear-gradient(to right, rgba(0, 0, 0, 0.2) 0.5px, transparent 0.5px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 0.5px, transparent 0.5px) !important;
+  background-size: 80px 80px !important;
+}
+
+.grid-gradient {
+  background: radial-gradient(70% 70% at 50% 50%, transparent 0%, rgba(0, 0, 0, 0.05) 100%) !important;
+}
+
+/* Dark mode adjustments for the grid background */
+.dark .grid-background {
+  background-image: linear-gradient(to right, rgba(0, 0, 0, 0.2) 0.5px, transparent 0.5px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 0.5px, transparent 0.5px) !important;
+  background-size: 80px 80px !important;
+}
+
+.dark .grid-gradient {
+  background: radial-gradient(70% 70% at 50% 50%, transparent 0%, rgba(0, 0, 0, 0.05) 100%) !important;
+}
+
+/* Card styling improvements for dark mode */
+.dark .card {
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--border));
+}
+
+.dark .card-description {
+  color: hsl(var(--muted-foreground));
+}
+
+/* Frosted glass effect */
+.frost-glass {
+  @apply backdrop-blur-md border shadow-sm;
+  /* Light mode specific */
+  @apply bg-white/80 border-primary/10 text-gray-800 shadow-[0_4px_20px_rgba(36,101,237,0.2)];
+  /* Dark mode specific */
+  @apply dark:bg-black/20 dark:border-white/10 dark:text-white dark:shadow-[0_4px_20px_rgba(36,101,237,0.3)];
+}
+
+/* Input focus effect */
+.frost-glass-input:focus {
+  @apply border-primary/30 ring-2 ring-primary/20 ring-offset-0;
+}
+
+/* Logo scrolling animation */
+@keyframes scroll-left {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-scroll-left {
+  animation: scroll-left 30s linear infinite;
+}
+
+@layer utilities {
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+
+  .backface-hidden {
+    backface-visibility: hidden;
+  }
+
+  @keyframes subtleBreath {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 0.08; /* Base opacity for the image container */
+    }
+    50% {
+      transform: scale(1.03); /* Slightly zoom in */
+      opacity: 0.12; /* Slightly more visible at peak */
+    }
+  }
+  .animate-subtle-breath {
+    animation: subtleBreath 15s infinite ease-in-out;
+    /* The base opacity is now controlled by the animation, so remove opacity-[0.1] from the div */
+  }
+}
+
+/* Mobile menu animations */
+.hamburger-line {
+  @apply absolute h-0.5 w-5 bg-current transform transition-all duration-300 ease-in-out;
+}
+
+/* Mobile menu backdrop */
+.mobile-menu-backdrop {
+  @apply fixed inset-0 bg-black/30 backdrop-blur-sm z-40;
+}
+
+/* Mobile menu slide animation */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.mobile-menu-enter {
+  animation: slideIn 0.3s forwards;
+}
+
+.mobile-menu-exit {
+  animation: slideOut 0.3s forwards;
+}
+
+/* Left align text on mobile */
+@media (max-width: 640px) {
+  .mobile-left-align {
+    text-align: left !important;
+  }
+
+  h1 {
+    @apply text-2xl leading-tight;
+  }
+
+  h2 {
+    @apply text-xl leading-tight;
+  }
+
+  h3 {
+    @apply text-lg leading-tight;
+  }
+
+  h4 {
+    @apply text-base leading-tight;
+  }
+
+  /* Adjust paragraph text for better mobile readability */
+  p {
+    @apply text-sm leading-relaxed;
+  }
+
+  /* Adjust section spacing for mobile */
+  section {
+    @apply py-8;
+  }
+}
