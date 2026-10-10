@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, ArrowRight, ClipboardList, Stethoscope, ChartColumn } from "lucide-react";
-import { api, setToken } from "@/lib/api";
+import { api, setToken, API_URL } from "@/lib/api";
 import Logo from "@/components/Logo";
 
 const DEMO = [
@@ -28,7 +28,13 @@ export default function Login() {
       setToken(res.token);
       router.push("/dashboard");
     } catch (err) {
-      setError(err.message.includes("fetch") ? "Cannot reach the API. Is the backend running on port 4000?" : err.message);
+      setError(
+        err.message.includes("fetch")
+          ? `Cannot reach the API at ${API_URL}. Check that the backend is running and NEXT_PUBLIC_API_URL points to it.`
+          : /\(404\)/.test(err.message)
+            ? `The API at ${API_URL} has no login route (404). NEXT_PUBLIC_API_URL must be the backend's base URL, e.g. https://your-api.up.railway.app`
+            : err.message
+      );
       setBusy("");
     }
   }

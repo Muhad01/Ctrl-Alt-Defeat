@@ -1,6 +1,11 @@
 "use client";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+// Tolerate common deploy mistakes: a trailing slash or a trailing "/api" on NEXT_PUBLIC_API_URL
+// would otherwise produce ".../api/api/..." or "...//api/..." and every request would 404.
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000")
+  .trim()
+  .replace(/\/+$/, "")
+  .replace(/\/api$/i, "");
 
 export function getToken() {
   try {

@@ -69,6 +69,10 @@ function caseDetail(c) {
 
 // ───────── health / meta ─────────
 app.get("/api/health", (req, res) => res.json({ ok: true, ai: aiModeInfo(), storage: storageInfo() }));
+// This server is an API only; the web app is the frontend. Opening the base URL shows where things are.
+app.get(["/", "/api"], (req, res) =>
+  res.json({ name: "Prior Auth Copilot API", ok: true, health: "/api/health", note: "This is the backend API. Open the frontend (web app) URL to use the app." })
+);
 app.get("/api/meta", requireAuth, (req, res) => res.json({ ai: aiModeInfo(), storage: storageInfo(), embeddings: embeddingStatus(), procedures: Object.values(PROCEDURES), payers: PAYERS, realPayers: REAL_PAYERS }));
 
 // ───────── auth ─────────

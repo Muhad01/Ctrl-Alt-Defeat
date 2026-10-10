@@ -2,6 +2,8 @@
 
 An agentic prior authorization and denial-prevention system for any procedure, test, surgery or treatment (imaging, heart surgery, angioplasty, joint replacement, chemotherapy, bariatric surgery, or anything typed in by name). A team of agents reads the patient's uploaded reports and scans, reads the chart, retrieves the payer's coverage criteria, matches every criterion to verbatim chart evidence, closes documentation gaps with the clinician, drafts the Letter of Medical Necessity, argues with a simulated insurer, verifies the packet, predicts denial risk, waits for human approval, submits to a (mock) payer, and drafts the appeal if a request is denied.
 
+**Full documentation (how it works, every agent, API, configuration, deployment, demo script): [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md).**
+
 See [PRIOR_AUTH_COPILOT_MVP.md](PRIOR_AUTH_COPILOT_MVP.md) for the product spec and [INNOVATION_FEATURES.md](INNOVATION_FEATURES.md) for the differentiating features.
 
 ## Quick start
