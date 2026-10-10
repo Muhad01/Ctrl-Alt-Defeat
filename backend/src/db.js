@@ -44,7 +44,7 @@ export function storageInfo() {
 export async function initDb() {
   if (process.env.MONGODB_URI) {
     if (!mongo) {
-      const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 15000, appName: "prior-auth-copilot" });
+      const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 15000, appName: "authproof" });
       await client.connect();
       const dbName = process.env.MONGODB_DB || "prior_auth_copilot";
       // host only, never the credentials

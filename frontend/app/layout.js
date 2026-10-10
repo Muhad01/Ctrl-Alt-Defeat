@@ -4,7 +4,7 @@ import "./globals.css";
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit", display: "swap" });
 
 export const metadata = {
-  title: "Prior Auth Copilot",
+  title: "AuthProof: prior authorization with cited proof",
   description: "Agentic prior authorization and denial prevention with evidence-grounded AI and human approval.",
 };
 

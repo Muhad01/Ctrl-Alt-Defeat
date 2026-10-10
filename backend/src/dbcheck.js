@@ -11,7 +11,7 @@ if (!uri) {
 const host = uri.replace(/^mongodb(\+srv)?:\/\//, "").split("@").pop().split(/[/?]/)[0]; // never print credentials
 const dbName = process.env.MONGODB_DB || "prior_auth_copilot";
 console.log(`Connecting to ${host} (database "${dbName}")…`);
-const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15000, appName: "prior-auth-copilot-check" });
+const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15000, appName: "authproof-check" });
 try {
   await client.connect();
   const db = client.db(dbName);

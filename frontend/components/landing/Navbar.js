@@ -23,7 +23,7 @@ export default function Navbar() {
   return (
     <header className={`sticky top-0 z-40 w-full border-b transition-all duration-300 ${scrolled ? "border-gray-200/80 bg-white/85 shadow-soft backdrop-blur-lg" : "border-transparent bg-transparent"}`}>
       <div className={`mx-auto flex max-w-6xl items-center justify-between px-4 transition-all duration-300 sm:px-6 ${scrolled ? "h-14" : "h-16"}`}>
-        <Link href="/" aria-label="Prior Auth Copilot home">
+        <Link href="/" aria-label="AuthProof home">
           <Logo />
         </Link>
         <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
