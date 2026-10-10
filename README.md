@@ -1,4 +1,4 @@
-# AuthProof
+# Medvera
 
 *Formerly "Prior Auth Copilot".*
 

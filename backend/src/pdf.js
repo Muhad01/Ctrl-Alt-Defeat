@@ -53,7 +53,7 @@ export async function packetPdf(caseObj, patient) {
 
   // Banner
   page.drawRectangle({ x: 0, y: H - 28, width: W, height: 28, color: rgb(0.15, 0.33, 0.88) });
-  page.drawText("AUTHPROOF  |  SYNTHETIC DATA / MOCK POLICY  |  DEMO ONLY", { x: M, y: H - 19, size: 9, font: bold, color: rgb(1, 1, 1) });
+  page.drawText("MEDVERA  |  SYNTHETIC DATA / MOCK POLICY  |  DEMO ONLY", { x: M, y: H - 19, size: 9, font: bold, color: rgb(1, 1, 1) });
   y = H - 60;
 
   // Letter (markdown subset)

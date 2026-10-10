@@ -1,4 +1,4 @@
-# AuthProof: Project Documentation
+# Medvera: Project Documentation
 
 *Formerly "Prior Auth Copilot".*
 
@@ -43,7 +43,7 @@
 
 Before an expensive test, surgery or treatment, most insurers require **prior authorization** (pre-approval). Hospital staff must read the patient's chart, find the insurer's rules for that procedure, prove each rule with evidence, and write a Letter of Medical Necessity. If a single piece of proof is missing, the request is rejected and the cycle starts again.
 
-AuthProof is a **dashboard web app** (not a chatbot) in which a team of AI agents does this work, live and step by step:
+Medvera is a **dashboard web app** (not a chatbot) in which a team of AI agents does this work, live and step by step:
 
 - reads the chart and any uploaded reports, scans or phone photos,
 - retrieves the insurer's policy for the requested procedure,
@@ -555,7 +555,7 @@ Reset the demo data (Settings, as Sara) before repeating the demo: attaching an 
 
 ## 22. Impact
 
-| | Today | With AuthProof |
+| | Today | With Medvera |
 |---|---|---|
 | Missing proof | Found after the insurer rejects | Found before submission |
 | Evidence | Searched for by hand | Every rule linked to an exact quote |

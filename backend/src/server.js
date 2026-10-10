@@ -71,7 +71,7 @@ function caseDetail(c) {
 app.get("/api/health", (req, res) => res.json({ ok: true, ai: aiModeInfo(), storage: storageInfo() }));
 // This server is an API only; the web app is the frontend. Opening the base URL shows where things are.
 app.get(["/", "/api"], (req, res) =>
-  res.json({ name: "AuthProof API", ok: true, health: "/api/health", note: "This is the backend API. Open the frontend (web app) URL to use the app." })
+  res.json({ name: "Medvera API", ok: true, health: "/api/health", note: "This is the backend API. Open the frontend (web app) URL to use the app." })
 );
 app.get("/api/meta", requireAuth, (req, res) => res.json({ ai: aiModeInfo(), storage: storageInfo(), embeddings: embeddingStatus(), procedures: Object.values(PROCEDURES), payers: PAYERS, realPayers: REAL_PAYERS }));
 
@@ -434,7 +434,7 @@ async function main() {
   buildIndex();
   // Cases left mid-run by a restart are resumed from the start.
   for (const c of db().cases.filter((x) => ["READING_REPORTS", "INTAKE", "CRITERIA_CHECK", "PACKET_DRAFTING", "ADVERSARIAL_REVIEW"].includes(x.status))) wf.runInBackground(c);
-  app.listen(PORT, () => console.log(`AuthProof API on http://localhost:${PORT} (AI: ${aiModeInfo().mode === "llm" ? `${aiModeInfo().providerLabel} ${aiModeInfo().model}` : "rules"})`));
+  app.listen(PORT, () => console.log(`Medvera API on http://localhost:${PORT} (AI: ${aiModeInfo().mode === "llm" ? `${aiModeInfo().providerLabel} ${aiModeInfo().model}` : "rules"})`));
   warmEmbeddings(); // loads bge-small in the background; search uses TF-IDF until it is ready
 }
 
