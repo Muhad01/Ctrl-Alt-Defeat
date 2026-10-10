@@ -1,1 +1,13 @@
-{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./*"] } } }
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["**/*.js", "**/*.jsx", "**/*.mjs"],
+  "exclude": ["node_modules", ".next"]
+}

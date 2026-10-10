@@ -135,6 +135,20 @@ How the app uses this data:
 
 Demo idea: create a case for *Maria Lopez* and switch the insurer between **EFU Life** (covered), **State Life** (conditional) and **Jubilee Life** (not covered). The same chart and the same clinical evidence give three different coverage answers, each traced to the insurer's own document.
 
+## Building and deploying the frontend
+
+`NEXT_PUBLIC_API_URL` is inlined into the browser bundle at build time, so set it to the deployed backend URL before building. Then add the frontend's URL to `CORS_ORIGIN` in `backend/.env` (comma-separated; empty allows any origin).
+
+```bash
+cd frontend
+NEXT_PUBLIC_API_URL=https://your-api.example.com npm run build   # also copies static assets into .next/standalone
+npm start                    # or: npm run start:standalone (node .next/standalone/server.js), honours PORT
+```
+
+- **Vercel:** set the project root to `frontend` and add `NEXT_PUBLIC_API_URL` as an environment variable.
+- **Docker / any Node host:** `docker build --build-arg NEXT_PUBLIC_API_URL=https://your-api.example.com -t pac-frontend frontend`, then `docker run -p 3000:3000 pac-frontend`.
+- The backend is a long-running Express server with SSE and file uploads, so host it on a Node server or container (not serverless) with `MONGODB_URI` set, since the local JSON store does not survive redeploys.
+
 ## MongoDB (Atlas)
 
 The backend stores everything in MongoDB when `MONGODB_URI` is set, and in `backend/data/db.json` otherwise.
