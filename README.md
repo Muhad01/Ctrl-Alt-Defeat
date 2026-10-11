@@ -72,7 +72,7 @@ VISION_MODEL=          # optional override for reading scans (Groq default: llam
 
 `AI_PROVIDER` still works as an alias of `LLM_PROVIDER`. `PIPELINE_STEP_DELAY_MS` sets the pause between agent steps, and `ESTIMATED_MANUAL_MINUTES_PER_PACKET` sets the baseline behind the "minutes saved" estimate.
 
-With a key set, the Report Reader, Intake, Criteria Matcher, Packet Writer, Verifier audit, Insurer Simulator and Appeal classifier call the model with JSON-schema structured outputs. Model output is never trusted as-is:
+With a key set, the Report Reader, Intake, Criteria Matcher, Packet Writer, Verifier audit, Insurer Simulator and Appeal classifier call model with JSON-schema structured outputs. Model output is never trusted as-is:
 
 - Every quote is resolved to verbatim chart text (`backend/src/utils/text.js`); anything that cannot be matched is dropped, and a MET verdict without a verifiable quote becomes UNCLEAR.
 - The letter writer may only reference pre-verified evidence ids; sentences citing anything else are removed.
